@@ -21,10 +21,12 @@
 ;; Begin function defintions.
 ;;;;;;;;;;;;;;;;;;;;;;;;;;
 
+(define mumble-sensitivity 5.0)
+
 (defun runs-every-frame ()
 
 ;;(if #t (pc-set-mumble-prox-info 1.0 1.0 1.0))
-(when *target* (pc-set-mumble-prox-info (/ (-> (target-pos 0) x) (meters 1.0)) (/ (-> (target-pos 0) y) (meters 1.0)) (/ (-> (target-pos 0) z) (meters 1.0)) ))
+(when *target* (pc-set-mumble-prox-info (/ (-> (target-pos 0) x) (* (meters 1.0) mumble-sensitivity)) (/ (-> (target-pos 0) y) (* (meters 1.0) mumble-sensitivity)) (/ (-> (target-pos 0) z) (* (meters 1.0) mumble-sensitivity)) ))
   ;;(increase-power-cell-by-one) This is a call to increase-power-cell-by-one defined in mod-common-functions.gc
   (if *show-input-display* (input-display-on) (input-display-off))
   ;; ensure orb-placer is spawned/killed as requested, debug menu is updated
