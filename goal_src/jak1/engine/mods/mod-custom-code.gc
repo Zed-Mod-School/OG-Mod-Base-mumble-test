@@ -21,7 +21,7 @@
 ;; Begin function defintions.
 ;;;;;;;;;;;;;;;;;;;;;;;;;;
 
-(define mumble-sensitivity 8.52)
+(define mumble-sensitivity 7.02)
 
 (defun runs-every-frame ()
 
