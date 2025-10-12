@@ -17,6 +17,7 @@
 #include "common/util/Timer.h"
 
 #include "game/common/game_common_types.h"
+#include "game/graphics/gfx.h"
 #include "game/kernel/common/klisten.h"
 #include "game/kernel/common/kprint.h"
 #include "game/kernel/common/kscheme.h"
@@ -24,16 +25,16 @@
 #include "game/kernel/jak1/klisten.h"
 #include "game/kernel/jak1/kmachine.h"
 #include "game/sce/libscf.h"
-#include "game/graphics/gfx.h"
 
 // Platform-specific headers for shared memory
 #ifdef _WIN32
- #include <windows.h>
+#include <windows.h>
 #else
- #include <sys/mman.h>
- #include <fcntl.h>
- #include <unistd.h>
-#endif // _WIN32
+#include <fcntl.h>
+#include <unistd.h>
+
+#include <sys/mman.h>
+#endif  // _WIN32
 
 using namespace ee;
 
@@ -77,7 +78,10 @@ void MumbleLinkInit() {
   printf("MumbleLink: Attempting to open shared memory 'MumbleLink' (Windows)...\n");
   HANDLE hMapObject = OpenFileMappingW(FILE_MAP_ALL_ACCESS, false, L"MumbleLink");
   if (hMapObject == NULL) {
-    printf("MumbleLink: FAILED to open file mapping (Error %lu). Is Mumble running and linked to a game?\n", GetLastError());
+    printf(
+        "MumbleLink: FAILED to open file mapping (Error %lu). Is Mumble running and linked to a "
+        "game?\n",
+        GetLastError());
     return;
   }
   printf("MumbleLink: File mapping successfully opened.\n");
@@ -105,7 +109,8 @@ void MumbleLinkInit() {
   }
   printf("MumbleLink: Shared memory file descriptor opened.\n");
 
-  lm = (LinkedMem*)(mmap(NULL, sizeof(struct LinkedMem), PROT_READ | PROT_WRITE, MAP_SHARED, shmfd, 0));
+  lm = (LinkedMem*)(mmap(NULL, sizeof(struct LinkedMem), PROT_READ | PROT_WRITE, MAP_SHARED, shmfd,
+                         0));
 
   if (lm == MAP_FAILED) {
     printf("MumbleLink: FAILED to map shared memory into address space.\n");
@@ -126,7 +131,7 @@ void MumbleLinkUpdate(const float avatar_pos[3],
                       const float camera_front[3],
                       const float camera_top[3]) {
   if (!lm) {
-    return; // Link not initialized or failed
+    return;  // Link not initialized or failed
   }
 
   if (lm->uiVersion != 2) {
@@ -157,7 +162,6 @@ void MumbleLinkUpdate(const float avatar_pos[3],
   memcpy(lm->fCameraFront, camera_front, 3 * sizeof(float));
   memcpy(lm->fCameraTop, camera_top, 3 * sizeof(float));
 }
-
 
 namespace jak1 {
 VideoMode BootVideoMode;
@@ -240,13 +244,12 @@ void KernelCheckAndDispatch() {
 
   // Hardcoded test vectors for Mumble (Replace these with actual game data!)
   // The Z-component of these arrays will be updated inside the loop.
-  float avatar_pos[3] = {0.001f, 0.0f, 0.0f}; // Z will be updated
-  float avatar_front[3] = {0.0f, 0.0f, 1.0f}; // Forward vector (0,0,1 is Z-forward)
-  float avatar_top[3] = {0.0f, 1.0f, 0.0f};  // Up vector (0,1,0 is Y-up)
-  float camera_pos[3] = {0.0f, 0.0f, 0.0f};  // Z will be updated
+  float avatar_pos[3] = {0.001f, 0.0f, 0.0f};  // Z will be updated
+  float avatar_front[3] = {0.0f, 0.0f, 1.0f};  // Forward vector (0,0,1 is Z-forward)
+  float avatar_top[3] = {0.0f, 1.0f, 0.0f};    // Up vector (0,1,0 is Y-up)
+  float camera_pos[3] = {0.0f, 0.0f, 0.0f};    // Z will be updated
   float camera_front[3] = {0.0f, 0.0f, 1.0f};
   float camera_top[3] = {0.0f, 1.0f, 0.0f};
-
 
   while (MasterExit == RuntimeExitStatus::RUNNING) {
     // try to get a message from the listener, and process it if needed
@@ -292,34 +295,33 @@ void KernelCheckAndDispatch() {
     current_y_pos = Gfx::g_global_settings.target_y;
     current_z_pos = Gfx::g_global_settings.target_z;
 
+    // Avatar position (follows player directly)
+    avatar_pos[0] = current_x_pos;  // X
+    avatar_pos[1] = current_y_pos;  // Y
+    avatar_pos[2] = current_z_pos;  // Z
 
-
-// Avatar position (follows player directly)
-avatar_pos[0] = current_x_pos;     // X
-avatar_pos[1] = current_y_pos;     // Y
-avatar_pos[2] = current_z_pos;     // Z
-
-// Camera position (slightly behind avatar)
-camera_pos[0] = current_x_pos - 0.5f;;     // X
-camera_pos[1] = current_y_pos - 0.5f;;     // Y
-camera_pos[2] = current_z_pos - 0.5f; // Z offset to trail slightly
+    // Camera position (slightly behind avatar)
+    camera_pos[0] = current_x_pos - 0.5f;
+    ;  // X
+    camera_pos[1] = current_y_pos - 0.5f;
+    ;                                      // Y
+    camera_pos[2] = current_z_pos - 0.5f;  // Z offset to trail slightly
     // ---------------------------------------------
 
     // Call the Mumble update function with test data
-    MumbleLinkUpdate(avatar_pos, avatar_front, avatar_top,
-                     camera_pos, camera_front, camera_top);
+    MumbleLinkUpdate(avatar_pos, avatar_front, avatar_top, camera_pos, camera_front, camera_top);
 
     // --- Periodic Console Print (Every 30 seconds) ---
     auto current_time = std::chrono::high_resolution_clock::now();
     std::chrono::duration<double> elapsed = current_time - last_print_time;
 
     if (elapsed.count() >= 30.0) {
-        printf("MumbleLink Debug: Positional Update (30s interval):\n");
-        printf("  Avatar Pos (X, Y, Z): %.4f, %.4f, %.4f\n",
-               avatar_pos[0], avatar_pos[1], avatar_pos[2]);
-        printf("  Camera Pos (X, Y, Z): %.4f, %.4f, %.4f\n",
-               camera_pos[0], camera_pos[1], camera_pos[2]);
-        last_print_time = current_time; // Reset the timer
+      printf("MumbleLink Debug: Positional Update (30s interval):\n");
+      printf("  Avatar Pos (X, Y, Z): %.4f, %.4f, %.4f\n", avatar_pos[0], avatar_pos[1],
+             avatar_pos[2]);
+      printf("  Camera Pos (X, Y, Z): %.4f, %.4f, %.4f\n", camera_pos[0], camera_pos[1],
+             camera_pos[2]);
+      last_print_time = current_time;  // Reset the timer
     }
     // ---------------------------------------------------
 

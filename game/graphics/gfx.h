@@ -55,8 +55,7 @@ static constexpr int PAT_MAT_COUNT = 29;
 struct GfxGlobalSettings {
   bool debug = true;  // graphics debugging
 
-
-// Mumble prox info just shoved here
+  // Mumble prox info just shoved here
   float target_x = 0;
   float target_y = 0;
   float target_z = 0;
