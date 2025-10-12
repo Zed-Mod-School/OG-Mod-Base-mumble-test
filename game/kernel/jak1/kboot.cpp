@@ -1,6 +1,6 @@
 /*!
  * @file kboot.cpp
- * GOAL Boot.  Contains the "main" function to launch GOAL runtime
+ * GOAL Boot. Contains the "main" function to launch GOAL runtime
  * DONE!
  */
 
@@ -25,7 +25,138 @@
 #include "game/kernel/jak1/kmachine.h"
 #include "game/sce/libscf.h"
 
+// Platform-specific headers for shared memory
+#ifdef _WIN32
+ #include <windows.h>
+#else
+ #include <sys/mman.h>
+ #include <fcntl.h>
+ #include <unistd.h>
+#endif // _WIN32
+
 using namespace ee;
+
+// --- MumbleLink Core Definitions ---
+
+// Mumble shared memory structure (must match Mumble's expectation)
+struct LinkedMem {
+#ifdef _WIN32
+  UINT32 uiVersion;
+  DWORD uiTick;
+#else
+  uint32_t uiVersion;
+  uint32_t uiTick;
+#endif
+  float fAvatarPosition[3];
+  float fAvatarFront[3];
+  float fAvatarTop[3];
+  wchar_t name[256];
+  float fCameraPosition[3];
+  float fCameraFront[3];
+  float fCameraTop[3];
+  wchar_t identity[256];
+#ifdef _WIN32
+  UINT32 context_len;
+#else
+  uint32_t context_len;
+#endif
+  unsigned char context[256];
+  wchar_t description[2048];
+};
+
+static LinkedMem* lm = nullptr;
+
+/*!
+ * Initialize the Mumble shared memory block.
+ * Includes debugging printouts for connection status.
+ */
+void MumbleLinkInit() {
+#ifdef _WIN32
+  // --- Debugging step: Try to open the shared memory object ---
+  printf("MumbleLink: Attempting to open shared memory 'MumbleLink' (Windows)...\n");
+  HANDLE hMapObject = OpenFileMappingW(FILE_MAP_ALL_ACCESS, FALSE, L"MumbleLink");
+  if (hMapObject == NULL) {
+    printf("MumbleLink: FAILED to open file mapping (Error %lu). Is Mumble running and linked to a game?\n", GetLastError());
+    return;
+  }
+  printf("MumbleLink: File mapping successfully opened.\n");
+
+  // --- Debugging step: Try to map the view of the file ---
+  lm = (LinkedMem*)MapViewOfFile(hMapObject, FILE_MAP_ALL_ACCESS, 0, 0, sizeof(LinkedMem));
+  if (lm == NULL) {
+    printf("MumbleLink: FAILED to map view of file (Error %lu)...\n", GetLastError());
+    CloseHandle(hMapObject);
+    return;
+  }
+  printf("MumbleLink: View of file successfully mapped. Initialization complete.\n");
+
+#else
+  // Linux/Unix initialization
+  char memname[256];
+  snprintf(memname, 256, "/MumbleLink.%d", getuid());
+
+  printf("MumbleLink: Attempting to open shared memory '%s' (Linux/Unix)...\n", memname);
+  int shmfd = shm_open(memname, O_RDWR, S_IRUSR | S_IWUSR);
+
+  if (shmfd < 0) {
+    printf("MumbleLink: FAILED to open shared memory file descriptor. Is Mumble running?\n");
+    return;
+  }
+  printf("MumbleLink: Shared memory file descriptor opened.\n");
+
+  lm = (LinkedMem*)(mmap(NULL, sizeof(struct LinkedMem), PROT_READ | PROT_WRITE, MAP_SHARED, shmfd, 0));
+
+  if (lm == MAP_FAILED) {
+    printf("MumbleLink: FAILED to map shared memory into address space.\n");
+    lm = nullptr;
+    return;
+  }
+  printf("MumbleLink: Shared memory successfully mapped. Initialization complete.\n");
+#endif
+}
+
+/*!
+ * Update the Mumble shared memory block with new positional data.
+ */
+void MumbleLinkUpdate(const float avatar_pos[3],
+                      const float avatar_front[3],
+                      const float avatar_top[3],
+                      const float camera_pos[3],
+                      const float camera_front[3],
+                      const float camera_top[3]) {
+  if (!lm) {
+    return; // Link not initialized or failed
+  }
+
+  if (lm->uiVersion != 2) {
+    // Set initial static information if link is new/reset
+    wcsncpy(lm->name, L"OpenGOAL Jak 1", 256);
+    wcsncpy(lm->description, L"Positional Audio for OpenGOAL Jak and Daxter: The Precursor Legacy",
+            2048);
+    lm->uiVersion = 2;
+
+    // Set static context/identity (can be updated later if needed for multi-server/instance)
+    wcsncpy(lm->identity, L"Jak1Player", 256);
+    // Unique identifier for the game instance/context
+    memcpy(lm->context, "OpenGOAL\x00\x01\x02\x03\x04\x05", 16);
+    lm->context_len = 16;
+  }
+
+  // 1. Update tick count (Mumble uses this to know data has changed)
+  lm->uiTick++;
+
+  // 2. Copy Avatar Positional Data
+  // Mumble Coordinate System: Left-handed, X=Right, Y=Up, Z=Front (1 unit = 1 meter)
+  memcpy(lm->fAvatarPosition, avatar_pos, 3 * sizeof(float));
+  memcpy(lm->fAvatarFront, avatar_front, 3 * sizeof(float));
+  memcpy(lm->fAvatarTop, avatar_top, 3 * sizeof(float));
+
+  // 3. Copy Camera Positional Data
+  memcpy(lm->fCameraPosition, camera_pos, 3 * sizeof(float));
+  memcpy(lm->fCameraFront, camera_front, 3 * sizeof(float));
+  memcpy(lm->fCameraTop, camera_top, 3 * sizeof(float));
+}
+
 
 namespace jak1 {
 VideoMode BootVideoMode;
@@ -39,21 +170,15 @@ void kboot_init_globals() {}
  * @param argc : argument count
  * @param argv : argument list
  * @return 0 on success, otherwise failure.
- *
- * CHANGES:
- * Added InitParms call to handle command line arguments
- * Removed hard-coded debug mode disable
- * Renamed from `main` to `goal_main`
- * Add call to sceDeci2Reset when GOAL shuts down.
  */
 s32 goal_main(int argc, const char* const* argv) {
-  // Initialize global variables based on command line parameters
-  // This call is not present in the retail version of the game
-  // but the function is, and it likely goes here.
   InitParms(argc, argv);
 
   // Initialize CRC32 table for string hashing
   init_crc();
+
+  // Call the Mumble initialization function
+  MumbleLinkInit();
 
   // NTSC V1, NTSC v2, PAL CD Demo, PAL Retail
   // Set up game configurations
@@ -85,11 +210,6 @@ s32 goal_main(int argc, const char* const* argv) {
     masterConfig.aspect = SCE_ASPECT_FULL;
   }
 
-  // In retail game, disable debugging modes, and force on DiskBoot
-  // MasterDebug = 0;
-  // DiskBoot = 1;
-  // DebugSegment = 0;
-
   // Launch GOAL!
   if (InitMachine() >= 0) {    // init kernel
     KernelCheckAndDispatch();  // run kernel
@@ -107,6 +227,24 @@ s32 goal_main(int argc, const char* const* argv) {
  */
 void KernelCheckAndDispatch() {
   u64 goal_stack = u64(g_ee_main_mem) + EE_MAIN_MEM_SIZE - 8;
+
+  // --- Mumble Link: Dynamic Test Data Setup ---
+  // Static variable to track position over time. This value persists across frames.
+  static float current_z_pos = 0.5f;
+
+  // Static time point for periodic console printing (new addition)
+  static auto last_print_time = std::chrono::high_resolution_clock::now();
+  // -------------------------------------------
+
+  // Hardcoded test vectors for Mumble (Replace these with actual game data!)
+  // The Z-component of these arrays will be updated inside the loop.
+  float avatar_pos[3] = {0.001f, 0.0f, 0.0f}; // Z will be updated
+  float avatar_front[3] = {0.0f, 0.0f, 1.0f}; // Forward vector (0,0,1 is Z-forward)
+  float avatar_top[3] = {0.0f, 1.0f, 0.0f};  // Up vector (0,1,0 is Y-up)
+  float camera_pos[3] = {0.0f, 0.0f, 0.0f};  // Z will be updated
+  float camera_front[3] = {0.0f, 0.0f, 1.0f};
+  float camera_top[3] = {0.0f, 1.0f, 0.0f};
+
 
   while (MasterExit == RuntimeExitStatus::RUNNING) {
     // try to get a message from the listener, and process it if needed
@@ -145,6 +283,33 @@ void KernelCheckAndDispatch() {
     }
 
     ClearPending();
+
+    // --- Mumble Link: Dynamic Test Data Update ---
+    // 1. Increment Z slightly each frame to simulate forward movement.
+    current_z_pos += 0.0001f;
+
+    // 2. Update the Z-component of the vectors with the new position.
+    avatar_pos[2] = current_z_pos;
+    camera_pos[2] = current_z_pos - 0.5f; // Camera trails avatar slightly
+    // ---------------------------------------------
+
+    // Call the Mumble update function with test data
+    MumbleLinkUpdate(avatar_pos, avatar_front, avatar_top,
+                     camera_pos, camera_front, camera_top);
+
+    // --- Periodic Console Print (Every 30 seconds) ---
+    auto current_time = std::chrono::high_resolution_clock::now();
+    std::chrono::duration<double> elapsed = current_time - last_print_time;
+
+    if (elapsed.count() >= 30.0) {
+        printf("MumbleLink Debug: Positional Update (30s interval):\n");
+        printf("  Avatar Pos (X, Y, Z): %.4f, %.4f, %.4f\n",
+               avatar_pos[0], avatar_pos[1], avatar_pos[2]);
+        printf("  Camera Pos (X, Y, Z): %.4f, %.4f, %.4f\n",
+               camera_pos[0], camera_pos[1], camera_pos[2]);
+        last_print_time = current_time; // Reset the timer
+    }
+    // ---------------------------------------------------
 
     // if the listener function changed, it means the kernel ran it, so we should notify compiler.
     if (MasterDebug && ListenerFunction->value != old_listener) {
