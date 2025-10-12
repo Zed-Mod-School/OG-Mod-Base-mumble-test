@@ -1114,7 +1114,7 @@ void pc_set_game_resolution(int w, int h) {
   Gfx::g_global_settings.game_res_h = h;
 }
 
-void pc_set_mumble_prox_info(float target_x, float target_y, float target_z) {
+void pc_set_mumble_prox_info(u32 target_x, u32 target_y, u32 target_z) {
   printf("[Mumble Prox] CALLED -> X: %.3f | Y: %.3f | Z: %.3f\n", Gfx::g_global_settings.target_x,
          Gfx::g_global_settings.target_y, Gfx::g_global_settings.target_z);
   fflush(stdout);  // Ensure it appears immediately in logs
