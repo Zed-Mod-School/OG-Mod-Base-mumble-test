@@ -22,6 +22,9 @@
 ;;;;;;;;;;;;;;;;;;;;;;;;;;
 
 (defun runs-every-frame ()
+
+;;(if #t (pc-set-mumble-prox-info 1.0 1.0 1.0))
+(when *target* (pc-set-mumble-prox-info (-> (target-pos 0) x) (-> (target-pos 0) y) (-> (target-pos 0) z)))
   ;;(increase-power-cell-by-one) This is a call to increase-power-cell-by-one defined in mod-common-functions.gc
   (if *show-input-display* (input-display-on) (input-display-off))
   ;; ensure orb-placer is spawned/killed as requested, debug menu is updated
@@ -71,7 +74,7 @@
        ;; Code here runs as soon as you pickup small green eco
        )
       (((pickup-type eco-green))
-       ;; Code here runs as soon as you pickup big green eco 
+       ;; Code here runs as soon as you pickup big green eco
        ))
     (when from-vent?
       ;; Code here runs only if the eco was picked up from a vent

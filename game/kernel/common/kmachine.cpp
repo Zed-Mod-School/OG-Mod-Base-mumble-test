@@ -196,7 +196,7 @@ u64 playMP3_internal(u32 filePathu32, u32 volume, bool isMainMusic) {
   std::string filePath = Ptr<String>(filePathu32).c()->data();
   std::string fullFilePath = fs::path(file_util::get_jak_project_dir() / "custom_assets" /
                                   game_version_names[g_game_version] / "audio" / filePath).string();
-  
+
   if (!file_util::file_exists(fullFilePath)) {
     // file doesn't exist, let GOAL side know we didn't find it
     return bool_to_symbol(false);
@@ -1114,6 +1114,24 @@ void pc_set_game_resolution(int w, int h) {
   Gfx::g_global_settings.game_res_h = h;
 }
 
+void pc_set_mumble_prox_info(float target_x, float target_y, float target_z) {
+  //   printf("[Mumble Prox] CALLED -> X: %.3f | Y: %.3f | Z: %.3f\n",
+  //        Gfx::g_global_settings.target_x,
+  //        Gfx::g_global_settings.target_y,
+  //        Gfx::g_global_settings.target_z);
+  // fflush(stdout);  // Ensure it appears immediately in logs
+  Gfx::g_global_settings.target_x = target_x;
+  Gfx::g_global_settings.target_y = target_y;
+  Gfx::g_global_settings.target_z = target_z;
+
+  // Debug printout
+  // printf("[Mumble Prox] Updated target position -> X: %.3f | Y: %.3f | Z: %.3f\n",
+  //        Gfx::g_global_settings.target_x,
+  //        Gfx::g_global_settings.target_y,
+  //        Gfx::g_global_settings.target_z);
+  // fflush(stdout);  // Ensure it appears immediately in logs
+}
+
 void pc_set_letterbox(int w, int h) {
   Gfx::g_global_settings.lbox_w = w;
   Gfx::g_global_settings.lbox_h = h;
@@ -1311,6 +1329,7 @@ void init_common_pc_port_functions(
   make_func_symbol_func("pc-set-msaa", (void*)pc_set_msaa);
   make_func_symbol_func("pc-set-frame-rate", (void*)pc_set_frame_rate);
   make_func_symbol_func("pc-set-game-resolution", (void*)pc_set_game_resolution);
+    make_func_symbol_func("pc-set-mumble-prox-info", (void*)pc_set_mumble_prox_info);
   make_func_symbol_func("pc-set-letterbox", (void*)pc_set_letterbox);
   make_func_symbol_func("pc-renderer-tree-set-lod", (void*)pc_renderer_tree_set_lod);
   make_func_symbol_func("pc-set-collision-mode", (void*)Gfx::CollisionRendererSetMode);

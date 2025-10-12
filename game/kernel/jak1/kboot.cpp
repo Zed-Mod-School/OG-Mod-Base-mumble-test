@@ -24,6 +24,7 @@
 #include "game/kernel/jak1/klisten.h"
 #include "game/kernel/jak1/kmachine.h"
 #include "game/sce/libscf.h"
+#include "game/graphics/gfx.h"
 
 // Platform-specific headers for shared memory
 #ifdef _WIN32
@@ -74,7 +75,7 @@ void MumbleLinkInit() {
 #ifdef _WIN32
   // --- Debugging step: Try to open the shared memory object ---
   printf("MumbleLink: Attempting to open shared memory 'MumbleLink' (Windows)...\n");
-  HANDLE hMapObject = OpenFileMappingW(FILE_MAP_ALL_ACCESS, FALSE, L"MumbleLink");
+  HANDLE hMapObject = OpenFileMappingW(FILE_MAP_ALL_ACCESS, false, L"MumbleLink");
   if (hMapObject == NULL) {
     printf("MumbleLink: FAILED to open file mapping (Error %lu). Is Mumble running and linked to a game?\n", GetLastError());
     return;
@@ -230,8 +231,9 @@ void KernelCheckAndDispatch() {
 
   // --- Mumble Link: Dynamic Test Data Setup ---
   // Static variable to track position over time. This value persists across frames.
+  static float current_x_pos = 0.5f;
+  static float current_y_pos = 0.5f;
   static float current_z_pos = 0.5f;
-
   // Static time point for periodic console printing (new addition)
   static auto last_print_time = std::chrono::high_resolution_clock::now();
   // -------------------------------------------
@@ -286,11 +288,21 @@ void KernelCheckAndDispatch() {
 
     // --- Mumble Link: Dynamic Test Data Update ---
     // 1. Increment Z slightly each frame to simulate forward movement.
-    current_z_pos += 0.0001f;
+    current_x_pos = Gfx::g_global_settings.target_x;
+    current_y_pos = Gfx::g_global_settings.target_y;
+    current_z_pos = Gfx::g_global_settings.target_z;
 
-    // 2. Update the Z-component of the vectors with the new position.
-    avatar_pos[2] = current_z_pos;
-    camera_pos[2] = current_z_pos - 0.5f; // Camera trails avatar slightly
+
+
+// Avatar position (follows player directly)
+avatar_pos[0] = current_x_pos;     // X
+avatar_pos[1] = current_y_pos;     // Y
+avatar_pos[2] = current_z_pos;     // Z
+
+// Camera position (slightly behind avatar)
+camera_pos[0] = current_x_pos - 0.5f;;     // X
+camera_pos[1] = current_y_pos - 0.5f;;     // Y
+camera_pos[2] = current_z_pos - 0.5f; // Z offset to trail slightly
     // ---------------------------------------------
 
     // Call the Mumble update function with test data

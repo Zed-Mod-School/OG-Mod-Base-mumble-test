@@ -583,6 +583,12 @@
 
 (define-extern pc-set-game-resolution (function int int none))
 
+;;make_func_symbol_func("pc-set-mumble-prox-info", (void*)pc_set_mumble_prox_info);
+
+(define-extern pc-set-mumble-prox-info (function float float float none))
+
+
+
 (define-extern pc-set-msaa (function int none))
 
 (define-extern pc-set-gfx-hack (function pc-gfx-hack symbol none))
