@@ -165,8 +165,19 @@ void broadcast_local_position() {
     }
   }
   if (target_count > 0) {
-    g_api.sendData(g_plugin_id, conn, users, target_count, (const uint8_t*)&payload,
-                   sizeof(payload), kDataID);
+    mumble_error_t err = g_api.sendData(g_plugin_id, conn, users, target_count,
+                                        (const uint8_t*)&payload, sizeof(payload), kDataID);
+    // log transitions only - an old (<1.4) server returns
+    // MUMBLE_EC_OPERATION_UNSUPPORTED_BY_SERVER here and relays nothing
+    static mumble_error_t last_err = MUMBLE_STATUS_OK;
+    if (err != last_err) {
+      if (err != MUMBLE_STATUS_OK) {
+        plog("OpenGOAL Jak 1: sendData FAILED: %s", mumble_errorMessage((int16_t)err));
+      } else {
+        plog("OpenGOAL Jak 1: sendData OK.");
+      }
+      last_err = err;
+    }
   }
   g_api.freeMemory(g_plugin_id, users);
 
@@ -305,7 +316,7 @@ mumble_releaseResource(const void* /*pointer*/) {
 //////////////////// general info functions ////////////////////
 
 MUMBLE_PLUGIN_EXPORT mumble_version_t MUMBLE_PLUGIN_CALLING_CONVENTION mumble_getVersion() {
-  return {0, 1, 0};
+  return {0, 2, 0};
 }
 
 MUMBLE_PLUGIN_EXPORT struct MumbleStringWrapper MUMBLE_PLUGIN_CALLING_CONVENTION
@@ -355,12 +366,31 @@ mumble_onReceiveData(mumble_connection_t connection,
   if (strcmp(dataID, kDataID) != 0) {
     return false;  // not ours - let other plugins look at it
   }
-  if (dataLength != sizeof(PositionPayload) || !g_shm) {
+  // log each rejection reason once so the console shows why data was dropped
+  static bool logged_bad_len = false, logged_no_shm = false, logged_bad_magic = false;
+  if (dataLength != sizeof(PositionPayload)) {
+    if (!logged_bad_len) {
+      plog("OpenGOAL Jak 1: dropping payload with wrong size %zu (expected %zu) - "
+           "mismatched plugin versions?",
+           dataLength, sizeof(PositionPayload));
+      logged_bad_len = true;
+    }
+    return true;
+  }
+  if (!g_shm) {
+    if (!logged_no_shm) {
+      plog("OpenGOAL Jak 1: received a position but the game isn't running here yet.");
+      logged_no_shm = true;
+    }
     return true;
   }
   PositionPayload payload;
   memcpy(&payload, data, sizeof(payload));
   if (payload.magic != kPayloadMagic) {
+    if (!logged_bad_magic) {
+      plog("OpenGOAL Jak 1: dropping payload with bad magic - mismatched plugin versions?");
+      logged_bad_magic = true;
+    }
     return true;
   }
 
