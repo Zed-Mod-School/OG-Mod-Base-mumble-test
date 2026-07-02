@@ -8,6 +8,9 @@
 #include "game/graphics/display.h"
 #include "game/graphics/gfx.h"
 #include "game/graphics/screenshot.h"
+#include <vector>
+
+#include "game/kernel/common/mumble_config.h"
 #include "game/kernel/common/mumble_link.h"
 #include "game/kernel/common/mumble_native.h"
 #include "game/kernel/common/mumble_voice.h"
@@ -165,13 +168,19 @@ void OpenGlDebugGui::draw(const DmaStats& dma_stats) {
 
       ImGui::Separator();
       if (ImGui::TreeNode("Native Client (no Mumble app needed)")) {
+        mumble_config_load();  // no-op after the first call
+        bool save_settings = false;
         auto& cfg = g_mumble_native_config;
         auto native = mumble_native_get_status();
         ImGui::InputText("Server", cfg.host, sizeof(cfg.host));
+        save_settings |= ImGui::IsItemDeactivatedAfterEdit();
         ImGui::InputInt("Port", &cfg.port);
+        save_settings |= ImGui::IsItemDeactivatedAfterEdit();
         ImGui::InputText("Username", cfg.username, sizeof(cfg.username));
+        save_settings |= ImGui::IsItemDeactivatedAfterEdit();
         ImGui::InputText("Password", cfg.password, sizeof(cfg.password),
                          ImGuiInputTextFlags_Password);
+        save_settings |= ImGui::IsItemDeactivatedAfterEdit();
         if (native.state == MumbleNativeState::Connected ||
             native.state == MumbleNativeState::Connecting) {
           if (ImGui::Button("Disconnect")) {
@@ -179,6 +188,7 @@ void OpenGlDebugGui::draw(const DmaStats& dma_stats) {
           }
         } else {
           if (ImGui::Button("Connect")) {
+            save_settings = true;
             mumble_native_connect();
           }
         }
@@ -202,7 +212,47 @@ void OpenGlDebugGui::draw(const DmaStats& dma_stats) {
         ImGui::SeparatorText("Voice");
         auto& vcfg = g_mumble_voice_config;
         auto voice = mumble_voice_get_status();
-        ImGui::Checkbox("Transmit (mic)", &vcfg.transmit);
+
+        // audio device pickers (cached; refresh on demand)
+        static std::vector<MumbleVoiceDeviceInfo> s_in_devs, s_out_devs;
+        static bool s_devs_loaded = false;
+        if (!s_devs_loaded || ImGui::SmallButton("Refresh Devices")) {
+          s_devs_loaded = true;
+          s_in_devs.resize(32);
+          s_in_devs.resize(mumble_voice_enum_devices(true, s_in_devs.data(), 32));
+          s_out_devs.resize(32);
+          s_out_devs.resize(mumble_voice_enum_devices(false, s_out_devs.data(), 32));
+        }
+        auto device_combo = [&save_settings](const char* label,
+                                             const std::vector<MumbleVoiceDeviceInfo>& devs,
+                                             char* cfg_id, size_t cfg_id_size) {
+          const char* current = "(System Default)";
+          for (const auto& d : devs) {
+            if (strcmp(d.id, cfg_id) == 0) {
+              current = d.name;
+              break;
+            }
+          }
+          if (ImGui::BeginCombo(label, current)) {
+            if (ImGui::Selectable("(System Default)", cfg_id[0] == 0)) {
+              cfg_id[0] = 0;
+              save_settings = true;
+            }
+            for (const auto& d : devs) {
+              if (ImGui::Selectable(d.name, strcmp(d.id, cfg_id) == 0)) {
+                snprintf(cfg_id, cfg_id_size, "%s", d.id);
+                save_settings = true;
+              }
+            }
+            ImGui::EndCombo();
+          }
+        };
+        device_combo("Microphone", s_in_devs, vcfg.input_device_id,
+                     sizeof(vcfg.input_device_id));
+        device_combo("Output Device", s_out_devs, vcfg.output_device_id,
+                     sizeof(vcfg.output_device_id));
+
+        save_settings |= ImGui::Checkbox("Transmit (mic)", &vcfg.transmit);
         ImGui::SameLine();
         if (voice.transmitting) {
           ImGui::TextColored(ImVec4(0.3f, 1.0f, 0.3f, 1.0f), "talking");
@@ -212,13 +262,20 @@ void OpenGlDebugGui::draw(const DmaStats& dma_stats) {
         ImGui::ProgressBar(voice.mic_level * 10.f > 1.f ? 1.f : voice.mic_level * 10.f,
                            ImVec2(-1, 4), "");
         ImGui::SliderFloat("Mic Gate", &vcfg.mic_gate, 0.f, 0.2f, "%.3f");
+        save_settings |= ImGui::IsItemDeactivatedAfterEdit();
         ImGui::SliderFloat("Volume", &vcfg.volume, 0.f, 3.f, "%.2f");
-        ImGui::Checkbox("Positional Audio", &vcfg.positional);
+        save_settings |= ImGui::IsItemDeactivatedAfterEdit();
+        save_settings |= ImGui::Checkbox("Positional Audio", &vcfg.positional);
         ImGui::SliderFloat("Min Distance (m)", &vcfg.min_distance_m, 0.5f, 20.f, "%.1f");
+        save_settings |= ImGui::IsItemDeactivatedAfterEdit();
         ImGui::SliderFloat("Max Distance (m)", &vcfg.max_distance_m, 5.f, 200.f, "%.1f");
+        save_settings |= ImGui::IsItemDeactivatedAfterEdit();
         ImGui::Text("%s | %d talking | tx %u rx %u", voice.message, voice.talking_peers,
                     voice.frames_sent, voice.frames_received);
 
+        if (save_settings) {
+          mumble_config_save();
+        }
         ImGui::TreePop();
       }
 

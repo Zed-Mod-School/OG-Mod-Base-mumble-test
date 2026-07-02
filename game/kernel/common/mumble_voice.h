@@ -24,7 +24,21 @@ struct MumbleVoiceConfig {
   bool positional = true;      // attenuate/pan by in-game distance
   float min_distance_m = 3.f;  // full volume within this (Mumble meters)
   float max_distance_m = 50.f; // silent beyond this
+  // cubeb device_id strings; empty = system default. Changing these while
+  // voice is running restarts the streams on the new devices.
+  char input_device_id[256] = "";
+  char output_device_id[256] = "";
 };
+
+struct MumbleVoiceDeviceInfo {
+  char id[256];    // stable identifier, stored in the config
+  char name[128];  // friendly name for the UI
+};
+
+// List available capture (input=true) or playback devices. Returns the count
+// written to `out` (up to max_count). Safe to call whether or not voice is
+// running.
+int mumble_voice_enum_devices(bool input, MumbleVoiceDeviceInfo* out, int max_count);
 
 struct MumbleVoiceStatus {
   bool capture_running = false;

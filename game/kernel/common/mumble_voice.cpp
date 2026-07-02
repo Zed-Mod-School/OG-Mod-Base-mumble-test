@@ -12,12 +12,29 @@
 #include <unordered_map>
 #include <vector>
 
+#include "game/kernel/common/mumble_config.h"
 #include "game/kernel/common/mumble_native.h"
 
 #include "opus.h"
 #include "third-party/cubeb/cubeb/include/cubeb/cubeb.h"
 
+#ifdef _WIN32
+#include <objbase.h>
+#endif
+
 namespace {
+
+// cubeb's WASAPI backend requires COM on the calling thread; harmless to call
+// repeatedly (S_FALSE) or if another apartment mode is already set.
+void ensure_com_initialized() {
+#ifdef _WIN32
+  thread_local bool done = false;
+  if (!done) {
+    CoInitializeEx(nullptr, COINIT_MULTITHREADED);
+    done = true;
+  }
+#endif
+}
 
 constexpr int kSampleRate = 48000;
 constexpr int kFrameSamples = 960;  // 20 ms at 48 kHz
@@ -53,6 +70,33 @@ cubeb* g_ctx = nullptr;
 cubeb_stream* g_out_stream = nullptr;
 cubeb_stream* g_in_stream = nullptr;
 bool g_started = false;
+// device ids the running streams were opened with, to detect config changes
+char g_applied_input_id[256] = "";
+char g_applied_output_id[256] = "";
+
+// find the devid for a configured device_id string; null (default) if empty
+// or no longer present
+cubeb_devid resolve_device(cubeb* ctx, bool input, const char* wanted_id) {
+  if (!wanted_id[0]) {
+    return nullptr;
+  }
+  cubeb_device_collection coll = {};
+  if (cubeb_enumerate_devices(ctx, input ? CUBEB_DEVICE_TYPE_INPUT : CUBEB_DEVICE_TYPE_OUTPUT,
+                              &coll) != CUBEB_OK) {
+    return nullptr;
+  }
+  cubeb_devid found = nullptr;
+  for (size_t i = 0; i < coll.count; i++) {
+    const auto& d = coll.device[i];
+    if (d.device_id && strcmp(d.device_id, wanted_id) == 0 &&
+        d.state == CUBEB_DEVICE_STATE_ENABLED) {
+      found = d.devid;
+      break;
+    }
+  }
+  cubeb_device_collection_destroy(ctx, &coll);
+  return found;
+}
 
 MumbleVoiceConfig snapshot_config() {
   std::lock_guard<std::mutex> lock(g_mutex);
@@ -274,13 +318,19 @@ void voice_start() {
   }
   g_started = true;  // even on partial failure; stop() cleans up whatever exists
 
+  ensure_com_initialized();
   if (cubeb_init(&g_ctx, "OpenGOAL-Voice", nullptr) != CUBEB_OK) {
     set_message("voice: audio context failed");
     return;
   }
 
+  MumbleVoiceConfig cfg = snapshot_config();
+  snprintf(g_applied_input_id, sizeof(g_applied_input_id), "%s", cfg.input_device_id);
+  snprintf(g_applied_output_id, sizeof(g_applied_output_id), "%s", cfg.output_device_id);
+
   // playback: 48 kHz stereo float
   {
+    cubeb_devid dev = resolve_device(g_ctx, false, cfg.output_device_id);
     cubeb_stream_params outparam = {};
     outparam.channels = 2;
     outparam.format = CUBEB_SAMPLE_FLOAT32NE;
@@ -289,7 +339,7 @@ void voice_start() {
     outparam.prefs = CUBEB_STREAM_PREF_NONE;
     uint32_t latency = 480;
     cubeb_get_min_latency(g_ctx, &outparam, &latency);
-    if (cubeb_stream_init(g_ctx, &g_out_stream, "OpenGOAL-Voice-Out", nullptr, nullptr, nullptr,
+    if (cubeb_stream_init(g_ctx, &g_out_stream, "OpenGOAL-Voice-Out", nullptr, nullptr, dev,
                           &outparam, latency, output_cb, state_cb, nullptr) == CUBEB_OK &&
         cubeb_stream_start(g_out_stream) == CUBEB_OK) {
       std::lock_guard<std::mutex> lock(g_mutex);
@@ -301,13 +351,14 @@ void voice_start() {
 
   // capture: 48 kHz mono float
   {
+    cubeb_devid dev = resolve_device(g_ctx, true, cfg.input_device_id);
     cubeb_stream_params inparam = {};
     inparam.channels = 1;
     inparam.format = CUBEB_SAMPLE_FLOAT32NE;
     inparam.rate = kSampleRate;
     inparam.layout = CUBEB_LAYOUT_MONO;
     inparam.prefs = CUBEB_STREAM_PREF_NONE;
-    if (cubeb_stream_init(g_ctx, &g_in_stream, "OpenGOAL-Voice-In", nullptr, &inparam, nullptr,
+    if (cubeb_stream_init(g_ctx, &g_in_stream, "OpenGOAL-Voice-In", dev, &inparam, nullptr,
                           nullptr, 480, input_cb, state_cb, nullptr) == CUBEB_OK &&
         cubeb_stream_start(g_in_stream) == CUBEB_OK) {
       std::lock_guard<std::mutex> lock(g_mutex);
@@ -349,10 +400,43 @@ MumbleVoiceStatus mumble_voice_get_status() {
   return g_status;
 }
 
+int mumble_voice_enum_devices(bool input, MumbleVoiceDeviceInfo* out, int max_count) {
+  ensure_com_initialized();
+  cubeb* ctx = g_ctx;
+  cubeb* temp = nullptr;
+  if (!ctx) {
+    if (cubeb_init(&temp, "OpenGOAL-Voice-Enum", nullptr) != CUBEB_OK) {
+      return 0;
+    }
+    ctx = temp;
+  }
+  int count = 0;
+  cubeb_device_collection coll = {};
+  if (cubeb_enumerate_devices(ctx, input ? CUBEB_DEVICE_TYPE_INPUT : CUBEB_DEVICE_TYPE_OUTPUT,
+                              &coll) == CUBEB_OK) {
+    for (size_t i = 0; i < coll.count && count < max_count; i++) {
+      const auto& d = coll.device[i];
+      if (d.state != CUBEB_DEVICE_STATE_ENABLED || !d.device_id) {
+        continue;
+      }
+      snprintf(out[count].id, sizeof(out[count].id), "%s", d.device_id);
+      snprintf(out[count].name, sizeof(out[count].name), "%s",
+               d.friendly_name ? d.friendly_name : d.device_id);
+      count++;
+    }
+    cubeb_device_collection_destroy(ctx, &coll);
+  }
+  if (temp) {
+    cubeb_destroy(temp);
+  }
+  return count;
+}
+
 void mumble_voice_maintain(const float avatar_pos[3],
                            const float cam_pos[3],
                            const float cam_front[3],
                            const float cam_top[3]) {
+  mumble_config_load();  // no-op after the first call
   {
     std::lock_guard<std::mutex> lock(g_mutex);
     memcpy(g_avatar_pos, avatar_pos, sizeof(g_avatar_pos));
@@ -361,6 +445,14 @@ void mumble_voice_maintain(const float avatar_pos[3],
     memcpy(g_cam_top, cam_top, sizeof(g_cam_top));
   }
   if (mumble_native_connected()) {
+    // restart the streams if the user picked different devices
+    if (g_started) {
+      MumbleVoiceConfig cfg = snapshot_config();
+      if (strcmp(cfg.input_device_id, g_applied_input_id) != 0 ||
+          strcmp(cfg.output_device_id, g_applied_output_id) != 0) {
+        voice_stop();
+      }
+    }
     voice_start();
   } else {
     voice_stop();
