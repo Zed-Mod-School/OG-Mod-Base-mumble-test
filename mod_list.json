@@ -1,7 +1,7 @@
 {
   "schemaVersion": "1.0.0",
   "sourceName": "OG-Mod-Base-mumble-test",
-  "lastUpdated": "2026-07-02T20:22:02Z",
+  "lastUpdated": "2026-07-02T21:00:47Z",
   "mods": {
     "mumble-proximity-chat": {
       "displayName": "Mumble Proximity Chat",
@@ -18,6 +18,23 @@
         "jak1"
       ],
       "versions": [
+        {
+          "version": "0.0.2-native-mumble.1",
+          "publishedDate": "2026-07-02T21:00:47Z",
+          "supportedGames": [
+            "jak1"
+          ],
+          "assets": {
+            "windows": "https://github.com/Zed-Mod-School/OG-Mod-Base-mumble-test/releases/download/v0.0.2-native-mumble.1/windows-v0.0.2-native-mumble.1.zip",
+            "linux": "https://github.com/Zed-Mod-School/OG-Mod-Base-mumble-test/releases/download/v0.0.2-native-mumble.1/linux-v0.0.2-native-mumble.1.tar.gz",
+            "macos-intel": "https://github.com/Zed-Mod-School/OG-Mod-Base-mumble-test/releases/download/v0.0.2-native-mumble.1/macos-intel-v0.0.2-native-mumble.1.tar.gz"
+          },
+          "assetDownloadCounts": {
+            "windows": 0,
+            "linux": 0,
+            "macos-intel": 0
+          }
+        },
         {
           "version": "0.0.2-native-mumble.0",
           "publishedDate": "2026-07-02T20:22:02Z",
