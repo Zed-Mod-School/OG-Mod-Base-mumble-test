@@ -345,9 +345,9 @@ if the result of rand-vu-int-range is 1, then DANCE! if it is not 1, then Don't 
     ;; make sure it doesn't timeout and disappear
     (logior! (-> fax options) (actor-option fade-out))
     (set! (-> fax fade-time) (the-as time-frame 0))
-
+    
     (let ((proc (the skill (ppointer->process (birth-pickup-at-point vec (pickup-type skill) amount #t *active-pool* fax)))))
-      (when bob?
+      (when bob? 
         (set! (-> proc bob-amount) 1024.0)
         )
       (format 0 "spawned ~A~%" proc)
