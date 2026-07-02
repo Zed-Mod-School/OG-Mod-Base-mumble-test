@@ -167,9 +167,9 @@ void broadcast_local_position() {
   if (target_count > 0) {
     mumble_error_t err = g_api.sendData(g_plugin_id, conn, users, target_count,
                                         (const uint8_t*)&payload, sizeof(payload), kDataID);
-    // log transitions only - an old (<1.4) server returns
+    // log the first result and every transition - an old (<1.4) server returns
     // MUMBLE_EC_OPERATION_UNSUPPORTED_BY_SERVER here and relays nothing
-    static mumble_error_t last_err = MUMBLE_STATUS_OK;
+    static mumble_error_t last_err = (mumble_error_t)-999;  // force the first log
     if (err != last_err) {
       if (err != MUMBLE_STATUS_OK) {
         plog("OpenGOAL Jak 1: sendData FAILED: %s", mumble_errorMessage((int16_t)err));
