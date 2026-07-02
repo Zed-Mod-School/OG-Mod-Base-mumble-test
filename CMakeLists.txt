@@ -213,6 +213,9 @@ set(CURL_ZLIB OFF)
 # suddenly became enabled on macOS atleast, only needed for unicode URLs
 # wasn't being properly statically linked
 set(USE_LIBIDN2 OFF)
+# macOS CI runners detect a broken homebrew libpsl (headers missing) and fail
+# building vendored curl; PSL is only for cookie-domain checks we don't need
+set(CURL_USE_LIBPSL OFF)
 if(WIN32)
     set(CURL_USE_SCHANNEL ON) # native Windows SSL support
 elseif(APPLE)
