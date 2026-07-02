@@ -583,9 +583,10 @@
 
 (define-extern pc-set-game-resolution (function int int none))
 
-;;make_func_symbol_func("pc-set-mumble-prox-info", (void*)pc_set_mumble_prox_info);
-
-(define-extern pc-set-mumble-prox-info (function float float float none))
+;; Mumble proximity voice chat. Args: avatar trans (vector), camera trans (vector),
+;; camera rotation (matrix, inv-camera-rot), world scale divisor.
+;; Declared with uint pointers because vector/matrix aren't defined yet here.
+(define-extern pc-mumble-link-update (function uint uint uint float none))
 
 
 

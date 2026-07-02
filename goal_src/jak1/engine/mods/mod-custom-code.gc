@@ -21,12 +21,22 @@
 ;; Begin function defintions.
 ;;;;;;;;;;;;;;;;;;;;;;;;;;
 
-(define mumble-sensitivity 7.02)
+;; Mumble proximity chat: divisor applied on top of the game-units->meters
+;; conversion. 1.0 = true world scale; larger values shrink the world so
+;; voices stay audible over longer in-game distances.
+(define *mumble-world-scale* 7.02)
+
+(defun update-mumble-link ()
+  "Send the player's position and the camera transform to Mumble for proximity voice chat."
+  (when (and *target* *math-camera*)
+    (pc-mumble-link-update (the-as uint (target-pos 0))
+                           (the-as uint (camera-pos))
+                           (the-as uint (-> *math-camera* inv-camera-rot))
+                           *mumble-world-scale*))
+  (none))
 
 (defun runs-every-frame ()
-
-;;(if #t (pc-set-mumble-prox-info 1.0 1.0 1.0))
-(when *target* (pc-set-mumble-prox-info (/ (-> (target-pos 0) x) (* (meters 1.0) mumble-sensitivity)) (/ (-> (target-pos 0) y) (* (meters 1.0) mumble-sensitivity)) (/ (-> (target-pos 0) z) (* (meters 1.0) mumble-sensitivity)) ))
+  (update-mumble-link)
   ;;(increase-power-cell-by-one) This is a call to increase-power-cell-by-one defined in mod-common-functions.gc
   (if *show-input-display* (input-display-on) (input-display-off))
   ;; ensure orb-placer is spawned/killed as requested, debug menu is updated

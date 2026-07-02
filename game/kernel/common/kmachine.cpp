@@ -34,6 +34,7 @@ namespace MiniAudioLib {
 }  // namespace MiniAudioLib
 
 #include "common/global_profiler/GlobalProfiler.h"
+#include "common/goal_constants.h"
 #include "common/log/log.h"
 #include "common/symbols.h"
 #include "common/util/FileUtil.h"
@@ -49,6 +50,7 @@ namespace MiniAudioLib {
 #include "game/kernel/common/kernel_types.h"
 #include "game/kernel/common/kprint.h"
 #include "game/kernel/common/kscheme.h"
+#include "game/kernel/common/mumble_link.h"
 #include "game/mips2c/mips2c_table.h"
 #include "game/sce/libcdvd_ee.h"
 #include "game/sce/libpad.h"
@@ -1114,26 +1116,45 @@ void pc_set_game_resolution(int w, int h) {
   Gfx::g_global_settings.game_res_h = h;
 }
 
-void pc_set_mumble_prox_info(u32 target_x, u32 target_y, u32 target_z) {
-  printf("[Mumble Prox] CALLED -> X: %.3f | Y: %.3f | Z: %.3f\n", Gfx::g_global_settings.target_x,
-         Gfx::g_global_settings.target_y, Gfx::g_global_settings.target_z);
-  fflush(stdout);  // Ensure it appears immediately in logs
+/*!
+ * Push the player's avatar + camera transform to Mumble for proximity voice chat.
+ * Limited to 4 args by the win32 GOAL->C trampoline, so orientation comes in as a
+ * whole rotation matrix instead of separate front/top vectors.
+ *
+ * - avatar_trans / cam_trans: GOAL `vector` pointers, world position in game units.
+ * - cam_rot: GOAL `matrix` pointer (inv-camera-rot), rows are the camera basis
+ *   vectors in world space (row 1 = up, row 2 = forward).
+ * - world_scale: divisor applied on top of the 4096 units-per-meter conversion.
+ *   Values > 1 shrink the world so voices carry proportionally further.
+ *
+ * The avatar is given the camera's orientation - Mumble only transmits avatar
+ * position to other players, so the front/top vectors only matter for the
+ * local listener, which hears through the camera.
+ */
+void pc_mumble_link_update(u32 avatar_trans, u32 cam_trans, u32 cam_rot, u32 world_scale) {
+  float scale;
+  memcpy(&scale, &world_scale, sizeof(float));
+  if (!(scale > 0.f)) {
+    scale = 1.f;
+  }
+  const float units_per_meter = (float)METER_LENGTH * scale;
 
-  float x;
-  memcpy(&x, &target_x, sizeof(float));
-    float y;
-  memcpy(&y, &target_y, sizeof(float));
-    float z;
-  memcpy(&z, &target_z, sizeof(float));
-  Gfx::g_global_settings.target_x = x;
-  Gfx::g_global_settings.target_y = y;
-  Gfx::g_global_settings.target_z = z;
+  const float* avatar = Ptr<float>(avatar_trans).c();
+  const float* cam = Ptr<float>(cam_trans).c();
+  const float* rot = Ptr<float>(cam_rot).c();
 
-  // Debug printout
-  printf("[Mumble Prox] Updated target position -> X: %.3f | Y: %.3f | Z: %.3f\n",
-         Gfx::g_global_settings.target_x, Gfx::g_global_settings.target_y,
-         Gfx::g_global_settings.target_z);
-  fflush(stdout);  // Ensure it appears immediately in logs
+  float avatar_pos[3], cam_pos[3];
+  for (int i = 0; i < 3; i++) {
+    avatar_pos[i] = avatar[i] / units_per_meter;
+    cam_pos[i] = cam[i] / units_per_meter;
+  }
+  // matrix rows are 4 floats wide; direction vectors are unit length already.
+  // note: if left/right audio ever sounds mirrored, negate the X component of
+  // both positions and the front vector (Mumble expects a left-handed system).
+  const float cam_top[3] = {rot[4], rot[5], rot[6]};
+  const float cam_front[3] = {rot[8], rot[9], rot[10]};
+
+  mumble_link_update(avatar_pos, cam_front, cam_top, cam_pos, cam_front, cam_top);
 }
 
 void pc_set_letterbox(int w, int h) {
@@ -1333,7 +1354,7 @@ void init_common_pc_port_functions(
   make_func_symbol_func("pc-set-msaa", (void*)pc_set_msaa);
   make_func_symbol_func("pc-set-frame-rate", (void*)pc_set_frame_rate);
   make_func_symbol_func("pc-set-game-resolution", (void*)pc_set_game_resolution);
-  make_func_symbol_func("pc-set-mumble-prox-info", (void*)pc_set_mumble_prox_info);
+  make_func_symbol_func("pc-mumble-link-update", (void*)pc_mumble_link_update);
   make_func_symbol_func("pc-set-letterbox", (void*)pc_set_letterbox);
   make_func_symbol_func("pc-renderer-tree-set-lod", (void*)pc_renderer_tree_set_lod);
   make_func_symbol_func("pc-set-collision-mode", (void*)Gfx::CollisionRendererSetMode);
