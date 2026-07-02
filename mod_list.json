@@ -1,7 +1,7 @@
 {
   "schemaVersion": "1.0.0",
   "sourceName": "OG-Mod-Base-mumble-test",
-  "lastUpdated": "2026-07-02T03:52:18Z",
+  "lastUpdated": "2026-07-02T03:57:37Z",
   "mods": {
     "mumble-proximity-chat": {
       "displayName": "Mumble Proximity Chat",
@@ -20,7 +20,7 @@
       "versions": [
         {
           "version": "0.0.1",
-          "publishedDate": "2026-07-02T03:52:18Z",
+          "publishedDate": "2026-07-02T03:57:37Z",
           "supportedGames": [
             "jak1"
           ],
