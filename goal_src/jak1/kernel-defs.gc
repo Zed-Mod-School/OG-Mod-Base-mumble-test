@@ -608,6 +608,12 @@
 ;; Declared with uint pointers because vector/matrix aren't defined yet here.
 (define-extern pc-mumble-link-update (function uint uint uint float none))
 
+;; Voice peer positions relayed by the OpenGOAL Mumble plugin (mumble-plugin/).
+;; peer-pos args: peer index, GOAL vector pointer (raw game units out).
+;; Returns 1 on success, 0 if the peer vanished.
+(define-extern pc-mumble-get-peer-count (function int))
+(define-extern pc-mumble-get-peer-pos (function int uint int))
+
 (define-extern pc-set-brightness-contrast (function int int none))
 
 (define-extern pc-set-msaa (function int none))

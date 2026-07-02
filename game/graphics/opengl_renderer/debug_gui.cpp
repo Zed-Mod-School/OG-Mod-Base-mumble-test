@@ -160,6 +160,16 @@ void OpenGlDebugGui::draw(const DmaStats& dma_stats) {
       ImGui::Text("Cam Front:  %7.2f %7.2f %7.2f", status.camera_front[0], status.camera_front[1],
                   status.camera_front[2]);
       ImGui::Text("Updates sent: %u", status.updates_sent);
+
+      ImGui::Separator();
+      MumbleLinkPeer peers[kMaxMumblePeers];
+      int peer_count = mumble_link_get_peers(peers);
+      ImGui::Text("Voice peers: %d", peer_count);
+      for (int i = 0; i < peer_count; i++) {
+        // positions are raw game units; show meters for readability
+        ImGui::Text("  %s: %.1f %.1f %.1f m", peers[i].name, peers[i].pos[0] / 4096.f,
+                    peers[i].pos[1] / 4096.f, peers[i].pos[2] / 4096.f);
+      }
       ImGui::EndMenu();
     }
 

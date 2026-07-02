@@ -2,6 +2,8 @@
 
 #include <cstdint>
 
+#include "game/kernel/common/mumble_peers_shm.h"
+
 /*!
  * @file mumble_link.h
  * Mumble "Link" positional-audio integration for proximity voice chat.
@@ -39,6 +41,18 @@ struct MumbleLinkStatus {
 
 extern MumbleLinkTuning g_mumble_link_tuning;
 extern MumbleLinkStatus g_mumble_link_status;
+
+// A voice peer whose position was received via the OpenGOAL Mumble plugin
+// (see mumble-plugin/ and mumble_peers_shm.h).
+struct MumbleLinkPeer {
+  char name[32];
+  float pos[3];  // raw game units, world space
+};
+
+// Snapshot the current (fresh) peers into `out` (size >= kMaxMumblePeers).
+// Returns the number of peers written. Safe to call even if the plugin isn't
+// running - returns 0.
+int mumble_link_get_peers(MumbleLinkPeer* out);
 
 // Push one frame of positional data to Mumble. Positions are in game units
 // (4096 per meter); front/top are unit vectors, all using X=right, Y=up.

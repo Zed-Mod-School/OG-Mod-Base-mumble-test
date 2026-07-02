@@ -1221,6 +1221,34 @@ void pc_mumble_link_update(u32 avatar_trans, u32 cam_trans, u32 cam_rot, u32 wor
   mumble_link_update(avatar_pos, cam_front, cam_top, cam_pos, cam_front, cam_top, scale);
 }
 
+/*!
+ * Number of Mumble voice peers with a fresh position (requires the OpenGOAL
+ * Mumble plugin, see mumble-plugin/).
+ */
+u32 pc_mumble_get_peer_count() {
+  MumbleLinkPeer peers[kMaxMumblePeers];
+  return mumble_link_get_peers(peers);
+}
+
+/*!
+ * Copy peer `index`'s position (raw game units) into the GOAL vector at
+ * `out_vec`. Returns 1 on success, 0 if the peer disappeared since the
+ * count was taken.
+ */
+u32 pc_mumble_get_peer_pos(u32 index, u32 out_vec) {
+  MumbleLinkPeer peers[kMaxMumblePeers];
+  int count = mumble_link_get_peers(peers);
+  if ((int)index >= count) {
+    return 0;
+  }
+  float* out = Ptr<float>(out_vec).c();
+  out[0] = peers[index].pos[0];
+  out[1] = peers[index].pos[1];
+  out[2] = peers[index].pos[2];
+  out[3] = 1.f;
+  return 1;
+}
+
 void pc_set_letterbox(int w, int h) {
   Gfx::g_global_settings.lbox_w = w;
   Gfx::g_global_settings.lbox_h = h;
@@ -1427,6 +1455,8 @@ void init_common_pc_port_functions(
   make_func_symbol_func("pc-set-frame-rate", (void*)pc_set_frame_rate);
   make_func_symbol_func("pc-set-game-resolution", (void*)pc_set_game_resolution);
   make_func_symbol_func("pc-mumble-link-update", (void*)pc_mumble_link_update);
+  make_func_symbol_func("pc-mumble-get-peer-count", (void*)pc_mumble_get_peer_count);
+  make_func_symbol_func("pc-mumble-get-peer-pos", (void*)pc_mumble_get_peer_pos);
   make_func_symbol_func("pc-set-brightness-contrast", (void*)pc_set_brightness_contrast);
   make_func_symbol_func("pc-set-letterbox", (void*)pc_set_letterbox);
   make_func_symbol_func("pc-renderer-tree-set-lod", (void*)pc_renderer_tree_set_lod);

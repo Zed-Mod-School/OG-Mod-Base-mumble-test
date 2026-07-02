@@ -35,8 +35,26 @@
                            *mumble-world-scale*))
   (none))
 
+;; Draw a sphere at each Mumble voice peer's position (relayed by the OpenGOAL
+;; Mumble plugin - see mumble-plugin/ in the repo).
+(define *mumble-draw-peers* #t)
+(define *mumble-peer-scratch* (new 'global 'vector))
+
+(defun draw-mumble-peers ()
+  "Draw a debug sphere where each Mumble voice peer is standing."
+  (when (and *mumble-draw-peers* *debug-segment*)
+    (dotimes (i (pc-mumble-get-peer-count))
+      (when (nonzero? (pc-mumble-get-peer-pos i (the-as uint *mumble-peer-scratch*)))
+        (add-debug-sphere #t
+                          (bucket-id debug-no-zbuf)
+                          *mumble-peer-scratch*
+                          (meters 1.5)
+                          (new 'static 'rgba :r #x20 :g #x80 :b #xff :a #x80)))))
+  (none))
+
 (defun runs-every-frame ()
   (update-mumble-link)
+  (draw-mumble-peers)
   ;;(increase-power-cell-by-one) This is a call to increase-power-cell-by-one defined in mod-common-functions.gc
   (if *show-input-display* (input-display-on) (input-display-off))
   ;; ensure orb-placer is spawned/killed as requested, debug menu is updated

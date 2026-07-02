@@ -14,6 +14,8 @@
 #include "common/goal_constants.h"
 #include "common/log/log.h"
 
+#include "game/kernel/common/mumble_peers_shm.h"
+
 #ifdef _WIN32
 #define WIN32_LEAN_AND_MEAN
 #include <windows.h>
@@ -110,7 +112,79 @@ bool link_ready() {
   return false;
 }
 
+// The peers block is game-owned: created here, opened by the Mumble plugin.
+// It carries our raw-unit position out and other players' positions back in.
+MumblePeersShm* g_peers = nullptr;
+
+void peers_shm_init() {
+  if (g_peers) {
+    return;
+  }
+#ifdef _WIN32
+  HANDLE map = CreateFileMappingA(INVALID_HANDLE_VALUE, nullptr, PAGE_READWRITE, 0,
+                                  sizeof(MumblePeersShm), kMumblePeersShmName);
+  if (!map) {
+    return;
+  }
+  void* mem = MapViewOfFile(map, FILE_MAP_ALL_ACCESS, 0, 0, sizeof(MumblePeersShm));
+  if (!mem) {
+    CloseHandle(map);
+    return;
+  }
+  // keep the handle open for the lifetime of the process - the mapping object
+  // is destroyed when the last handle/view goes away.
+#else
+  char memname[256];
+  snprintf(memname, sizeof(memname), "/%s.%d", kMumblePeersShmName, getuid());
+  int fd = shm_open(memname, O_CREAT | O_RDWR, S_IRUSR | S_IWUSR);
+  if (fd < 0) {
+    return;
+  }
+  if (ftruncate(fd, sizeof(MumblePeersShm)) != 0) {
+    close(fd);
+    return;
+  }
+  void* mem = mmap(nullptr, sizeof(MumblePeersShm), PROT_READ | PROT_WRITE, MAP_SHARED, fd, 0);
+  close(fd);
+  if (mem == MAP_FAILED) {
+    return;
+  }
+#endif
+  auto* shm = (MumblePeersShm*)mem;
+  if (shm->magic != kMumblePeersMagic) {
+    memset(shm, 0, sizeof(MumblePeersShm));
+    shm->magic = kMumblePeersMagic;
+    shm->version = kMumblePeersVersion;
+  }
+  g_peers = shm;
+  lg::info("MumbleLink: peers shared memory ready.");
+}
+
 }  // namespace
+
+int mumble_link_get_peers(MumbleLinkPeer* out) {
+  if (!g_peers) {
+    return 0;
+  }
+  const uint32_t now = peers_now_ms();
+  int count = 0;
+  for (int i = 0; i < kMaxMumblePeers && count < kMaxMumblePeers; i++) {
+    const auto& slot = g_peers->peers[i];
+    if (!slot.used) {
+      continue;
+    }
+    // drop peers the plugin hasn't refreshed recently (left the server,
+    // closed their game, etc.)
+    if (now - slot.last_update_ms > 3000) {
+      continue;
+    }
+    auto& peer = out[count++];
+    memcpy(peer.name, slot.name, sizeof(peer.name));
+    peer.name[sizeof(peer.name) - 1] = 0;
+    memcpy(peer.pos, slot.pos, sizeof(peer.pos));
+  }
+  return count;
+}
 
 void mumble_link_update(const float avatar_pos[3],
                         const float avatar_front[3],
@@ -127,6 +201,14 @@ void mumble_link_update(const float avatar_pos[3],
 
   if (!tuning.enabled) {
     return;  // stale tick -> Mumble falls back to non-positional audio
+  }
+
+  // publish our raw-unit position for the Mumble plugin to broadcast to other
+  // players (independent of the audio link below being connected)
+  peers_shm_init();
+  if (g_peers) {
+    memcpy(g_peers->local_pos, avatar_pos, sizeof(g_peers->local_pos));
+    g_peers->local_tick++;
   }
   if (!link_ready()) {
     return;
