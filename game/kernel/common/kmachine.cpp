@@ -34,7 +34,6 @@ namespace MiniAudioLib {
 }  // namespace MiniAudioLib
 
 #include "common/global_profiler/GlobalProfiler.h"
-#include "common/goal_constants.h"
 #include "common/log/log.h"
 #include "common/symbols.h"
 #include "common/util/FileUtil.h"
@@ -1208,27 +1207,18 @@ void pc_set_game_resolution(int w, int h) {
 void pc_mumble_link_update(u32 avatar_trans, u32 cam_trans, u32 cam_rot, u32 world_scale) {
   float scale;
   memcpy(&scale, &world_scale, sizeof(float));
-  if (!(scale > 0.f)) {
-    scale = 1.f;
-  }
-  const float units_per_meter = (float)METER_LENGTH * scale;
 
   const float* avatar = Ptr<float>(avatar_trans).c();
   const float* cam = Ptr<float>(cam_trans).c();
   const float* rot = Ptr<float>(cam_rot).c();
 
-  float avatar_pos[3], cam_pos[3];
-  for (int i = 0; i < 3; i++) {
-    avatar_pos[i] = avatar[i] / units_per_meter;
-    cam_pos[i] = cam[i] / units_per_meter;
-  }
   // matrix rows are 4 floats wide; direction vectors are unit length already.
-  // note: if left/right audio ever sounds mirrored, negate the X component of
-  // both positions and the front vector (Mumble expects a left-handed system).
   const float cam_top[3] = {rot[4], rot[5], rot[6]};
   const float cam_front[3] = {rot[8], rot[9], rot[10]};
+  const float avatar_pos[3] = {avatar[0], avatar[1], avatar[2]};
+  const float cam_pos[3] = {cam[0], cam[1], cam[2]};
 
-  mumble_link_update(avatar_pos, cam_front, cam_top, cam_pos, cam_front, cam_top);
+  mumble_link_update(avatar_pos, cam_front, cam_top, cam_pos, cam_front, cam_top, scale);
 }
 
 void pc_set_letterbox(int w, int h) {

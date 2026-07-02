@@ -8,6 +8,7 @@
 #include "game/graphics/display.h"
 #include "game/graphics/gfx.h"
 #include "game/graphics/screenshot.h"
+#include "game/kernel/common/mumble_link.h"
 #include "game/overlord/jak3/dma.h"
 #include "game/system/hid/sdl_util.h"
 
@@ -127,6 +128,38 @@ void OpenGlDebugGui::draw(const DmaStats& dma_stats) {
       }
       ImGui::MenuItem("Subtitle Editor", nullptr, &m_subtitle_editor);
       ImGui::MenuItem("Debug Text Filter", nullptr, &m_filters_menu);
+      ImGui::EndMenu();
+    }
+
+    if (ImGui::BeginMenu("Mumble")) {
+      auto& tuning = g_mumble_link_tuning;
+      const auto& status = g_mumble_link_status;
+
+      if (status.connected) {
+        ImGui::TextColored(ImVec4(0.3f, 1.0f, 0.3f, 1.0f), "Link: connected");
+      } else {
+        ImGui::TextColored(ImVec4(1.0f, 0.3f, 0.3f, 1.0f), "Link: not connected");
+      }
+      ImGui::Separator();
+
+      ImGui::Checkbox("Enabled", &tuning.enabled);
+      ImGui::Checkbox("Override World Scale", &tuning.override_world_scale);
+      ImGui::BeginDisabled(!tuning.override_world_scale);
+      ImGui::SliderFloat("World Scale", &tuning.world_scale, 0.1f, 100.0f, "%.2f",
+                         ImGuiSliderFlags_Logarithmic);
+      ImGui::EndDisabled();
+      ImGui::Text("GOAL scale: %.2f | effective: %.2f", status.goal_scale, status.effective_scale);
+      ImGui::Checkbox("Mirror X (flip left/right audio)", &tuning.mirror_x);
+      ImGui::SliderFloat("Reconnect Interval (s)", &tuning.retry_interval_s, 1.0f, 30.0f, "%.0f");
+
+      ImGui::Separator();
+      ImGui::Text("Avatar (m): %7.2f %7.2f %7.2f", status.avatar_pos[0], status.avatar_pos[1],
+                  status.avatar_pos[2]);
+      ImGui::Text("Camera (m): %7.2f %7.2f %7.2f", status.camera_pos[0], status.camera_pos[1],
+                  status.camera_pos[2]);
+      ImGui::Text("Cam Front:  %7.2f %7.2f %7.2f", status.camera_front[0], status.camera_front[1],
+                  status.camera_front[2]);
+      ImGui::Text("Updates sent: %u", status.updates_sent);
       ImGui::EndMenu();
     }
 
