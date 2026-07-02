@@ -1,0 +1,49 @@
+name: Update Mod List 📋
+
+on:
+  workflow_dispatch:
+    inputs:
+      version:
+        description: 'Release version tag (e.g. v0.1.0). Leave empty to use latest release.'
+        required: false
+        type: string
+
+permissions:
+  contents: write
+
+jobs:
+  update_mod_list:
+    name: "Update Mod List"
+    runs-on: ubuntu-latest
+    steps:
+      - name: "Checkout Repository"
+        uses: actions/checkout@v4
+        with:
+          ref: main
+
+      - name: "Resolve Version"
+        id: resolve
+        env:
+          GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+        run: |
+          if [[ -n "${{ inputs.version }}" ]]; then
+            echo "VERSION=${{ inputs.version }}" >> $GITHUB_OUTPUT
+          else
+            LATEST=$(gh release view --repo ${{ github.repository }} --json tagName -q '.tagName')
+            echo "VERSION=$LATEST" >> $GITHUB_OUTPUT
+          fi
+
+      - name: "Update mod_list.json"
+        env:
+          VERSION: ${{ steps.resolve.outputs.VERSION }}
+          SUPPORTED_GAMES: "jak1"
+        run: python ./.github/scripts/create-mod-release/update-mod-list.py
+
+      - name: "Commit and Push"
+        run: |
+          git config user.name "github-actions"
+          git config user.email "github-actions@github.com"
+          git add mod_list.json
+          git diff --cached --quiet && echo "No changes to commit" && exit 0
+          git commit -m "Update mod_list.json for ${{ steps.resolve.outputs.VERSION }}"
+          git push

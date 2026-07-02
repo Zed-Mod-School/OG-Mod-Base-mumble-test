@@ -434,3 +434,31 @@ jobs:
           TAG_VAL=${{ needs.create_release.outputs.bundleTagName }}
           echo $TAG_VAL
           gh release edit ${TAG_VAL} --draft=false --repo ${{ github.repository }}
+
+  update_mod_list:
+    name: "Update Mod List"
+    needs:
+      - create_release
+      - finalize_release
+    if: always() && needs.finalize_release.result == 'success'
+    runs-on: ubuntu-latest
+    steps:
+      - name: "Checkout Repository"
+        uses: actions/checkout@v4
+        with:
+          ref: main
+
+      - name: "Update mod_list.json"
+        env:
+          VERSION: ${{ needs.create_release.outputs.bundleTagName }}
+          SUPPORTED_GAMES: ${{ inputs.metadataSupportedGames }}
+        run: python ./.github/scripts/create-mod-release/update-mod-list.py
+
+      - name: "Commit and Push"
+        run: |
+          git config user.name "github-actions"
+          git config user.email "github-actions@github.com"
+          git add mod_list.json
+          git diff --cached --quiet && echo "No changes to commit" && exit 0
+          git commit -m "Update mod_list.json for ${{ needs.create_release.outputs.bundleTagName }}"
+          git push
