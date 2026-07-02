@@ -710,6 +710,32 @@ void mumble_native_update_position(const float pos[3]) {
   g_local_pos_tick++;
 }
 
+bool mumble_native_get_user_name(uint32_t session, char* out, size_t out_size) {
+  std::lock_guard<std::mutex> lock(g_mutex);
+  auto it = g_users.find(session);
+  if (it == g_users.end() || it->second.name.empty()) {
+    return false;
+  }
+  snprintf(out, out_size, "%s", it->second.name.c_str());
+  return true;
+}
+
+int mumble_native_get_user_list(char (*names)[32], int max_count) {
+  std::lock_guard<std::mutex> lock(g_mutex);
+  int count = 0;
+  for (auto& [session, user] : g_users) {
+    if (count >= max_count) {
+      break;
+    }
+    if (session == g_status.session || user.name.empty()) {
+      continue;
+    }
+    snprintf(names[count], 32, "%s", user.name.c_str());
+    count++;
+  }
+  return count;
+}
+
 void mumble_native_set_voice_rx(MumbleVoiceRxFn fn) {
   g_voice_rx = fn;
 }

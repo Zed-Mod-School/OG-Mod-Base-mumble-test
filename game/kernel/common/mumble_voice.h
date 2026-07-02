@@ -1,6 +1,8 @@
 #pragma once
 
 #include <cstdint>
+#include <string>
+#include <unordered_map>
 
 /*!
  * @file mumble_voice.h
@@ -18,12 +20,16 @@
 
 // editable from the ImGui Mumble menu
 struct MumbleVoiceConfig {
-  bool transmit = true;        // master mic switch
+  bool mic_muted = false;      // master mic mute
   float mic_gate = 0.01f;      // RMS below this doesn't transmit (crude VAD)
   float volume = 1.0f;         // master receive volume
   bool positional = true;      // attenuate/pan by in-game distance
   float min_distance_m = 3.f;  // full volume within this (Mumble meters)
-  float max_distance_m = 50.f; // silent beyond this
+  float max_distance_m = 20.f; // silent beyond this
+  // falloff curve aggression: gain = (1 - t)^falloff where t is the
+  // normalized distance between min and max. 1 = linear; higher values make
+  // voices drop off faster as players walk away.
+  float falloff = 1.0f;
   // cubeb device_id strings; empty = system default. Changing these while
   // voice is running restarts the streams on the new devices.
   char input_device_id[256] = "";
@@ -39,6 +45,13 @@ struct MumbleVoiceDeviceInfo {
 // written to `out` (up to max_count). Safe to call whether or not voice is
 // running.
 int mumble_voice_enum_devices(bool input, MumbleVoiceDeviceInfo* out, int max_count);
+
+// Per-user volume adjustments (keyed by Mumble username, persisted).
+// volume is a multiplier: 1 = unchanged, 0 = muted, up to 2.
+void mumble_voice_set_user_volume(const char* name, float volume);
+float mumble_voice_get_user_volume(const char* name);
+// snapshot for persistence
+std::unordered_map<std::string, float> mumble_voice_get_user_volumes();
 
 struct MumbleVoiceStatus {
   bool capture_running = false;

@@ -63,14 +63,23 @@ void load_impl() {
   copy_str(n.password, sizeof(n.password), j, "password");
 
   auto& v = g_mumble_voice_config;
-  copy_bool(&v.transmit, j, "transmit");
+  copy_bool(&v.mic_muted, j, "mic_muted");
   copy_num(&v.mic_gate, j, "mic_gate");
   copy_num(&v.volume, j, "volume");
   copy_bool(&v.positional, j, "positional");
   copy_num(&v.min_distance_m, j, "min_distance_m");
   copy_num(&v.max_distance_m, j, "max_distance_m");
+  copy_num(&v.falloff, j, "falloff");
   copy_str(v.input_device_id, sizeof(v.input_device_id), j, "input_device_id");
   copy_str(v.output_device_id, sizeof(v.output_device_id), j, "output_device_id");
+
+  if (j.contains("user_volumes") && j["user_volumes"].is_object()) {
+    for (auto& [name, vol] : j["user_volumes"].items()) {
+      if (vol.is_number()) {
+        mumble_voice_set_user_volume(name.c_str(), vol.get<float>());
+      }
+    }
+  }
 }
 
 }  // namespace
@@ -87,15 +96,21 @@ void mumble_config_save() {
       {"port", n.port},
       {"username", n.username},
       {"password", n.password},
-      {"transmit", v.transmit},
+      {"mic_muted", v.mic_muted},
       {"mic_gate", v.mic_gate},
       {"volume", v.volume},
       {"positional", v.positional},
       {"min_distance_m", v.min_distance_m},
       {"max_distance_m", v.max_distance_m},
+      {"falloff", v.falloff},
       {"input_device_id", v.input_device_id},
       {"output_device_id", v.output_device_id},
   };
+  json volumes = json::object();
+  for (auto& [name, vol] : mumble_voice_get_user_volumes()) {
+    volumes[name] = vol;
+  }
+  j["user_volumes"] = volumes;
   auto path = config_path();
   file_util::create_dir_if_needed_for_file(path);
   file_util::write_text_file(path, j.dump(2));

@@ -252,9 +252,11 @@ void OpenGlDebugGui::draw(const DmaStats& dma_stats) {
         device_combo("Output Device", s_out_devs, vcfg.output_device_id,
                      sizeof(vcfg.output_device_id));
 
-        save_settings |= ImGui::Checkbox("Transmit (mic)", &vcfg.transmit);
+        save_settings |= ImGui::Checkbox("Mute Microphone", &vcfg.mic_muted);
         ImGui::SameLine();
-        if (voice.transmitting) {
+        if (vcfg.mic_muted) {
+          ImGui::TextColored(ImVec4(1.0f, 0.5f, 0.2f, 1.0f), "muted");
+        } else if (voice.transmitting) {
           ImGui::TextColored(ImVec4(0.3f, 1.0f, 0.3f, 1.0f), "talking");
         } else {
           ImGui::TextUnformatted(voice.capture_running ? "quiet" : "mic off");
@@ -270,8 +272,25 @@ void OpenGlDebugGui::draw(const DmaStats& dma_stats) {
         save_settings |= ImGui::IsItemDeactivatedAfterEdit();
         ImGui::SliderFloat("Max Distance (m)", &vcfg.max_distance_m, 5.f, 200.f, "%.1f");
         save_settings |= ImGui::IsItemDeactivatedAfterEdit();
+        ImGui::SliderFloat("Falloff Aggression", &vcfg.falloff, 0.25f, 4.f, "%.2f",
+                           ImGuiSliderFlags_Logarithmic);
+        save_settings |= ImGui::IsItemDeactivatedAfterEdit();
         ImGui::Text("%s | %d talking | tx %u rx %u", voice.message, voice.talking_peers,
                     voice.frames_sent, voice.frames_received);
+
+        // per-user receive volumes for everyone else on the server
+        char user_names[16][32];
+        int user_count = mumble_native_get_user_list(user_names, 16);
+        if (user_count > 0) {
+          ImGui::SeparatorText("User Volumes");
+          for (int i = 0; i < user_count; i++) {
+            float vol = mumble_voice_get_user_volume(user_names[i]);
+            if (ImGui::SliderFloat(user_names[i], &vol, 0.f, 2.f, "%.2f")) {
+              mumble_voice_set_user_volume(user_names[i], vol);
+            }
+            save_settings |= ImGui::IsItemDeactivatedAfterEdit();
+          }
+        }
 
         if (save_settings) {
           mumble_config_save();

@@ -20,7 +20,8 @@
 
 // editable from the ImGui Mumble menu
 struct MumbleNativeConfig {
-  char host[128] = "127.0.0.1";
+  // default: the mod's Oracle VPS proximity server
+  char host[128] = "150.136.225.222";
   int port = 64738;
   char username[64] = "";
   char password[64] = "";
@@ -58,6 +59,13 @@ void mumble_native_update_position(const float pos[3]);
 // Peers seen through the native connection (same contract as
 // mumble_link_get_peers; out must hold >= kMaxMumblePeers entries).
 int mumble_native_get_peers(MumbleLinkPeer* out);
+
+// Name of a connected user by session id. Returns false if unknown.
+bool mumble_native_get_user_name(uint32_t session, char* out, size_t out_size);
+
+// All connected users except ourselves (names only, for UI lists like
+// per-user volume). Returns count written, up to max_count.
+int mumble_native_get_user_list(char (*names)[32], int max_count);
 
 // ---------------- voice transport (used by mumble_voice.cpp) ----------------
 

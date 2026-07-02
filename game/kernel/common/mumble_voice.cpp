@@ -48,11 +48,13 @@ struct PeerAudio {
   std::deque<float> pcm;  // decoded mono samples waiting to be mixed
   float pos[3] = {};      // Mumble meters
   bool has_pos = false;
+  char name[32] = "";  // resolved lazily from the native client's user table
 };
 
 std::mutex g_mutex;  // guards everything below (brief holds only)
 MumbleVoiceStatus g_status;
 std::unordered_map<uint32_t, PeerAudio> g_peers;
+std::unordered_map<std::string, float> g_user_volumes;  // username -> multiplier
 
 // listener + transmitter transforms, refreshed by the game thread
 float g_avatar_pos[3] = {};
@@ -109,8 +111,15 @@ void voice_rx(uint32_t session, uint32_t /*seq*/, const uint8_t* opus, size_t le
               const float* pos) {
   // called on the native client thread
   float decoded[kMaxDecodedSamples];
+  // resolve the sender's name before taking our own lock (native has its own)
+  char name[32] = "";
+  mumble_native_get_user_name(session, name, sizeof(name));
+
   std::lock_guard<std::mutex> lock(g_mutex);
   auto& peer = g_peers[session];
+  if (name[0]) {
+    memcpy(peer.name, name, sizeof(peer.name));
+  }
   if (!peer.decoder) {
     int err = 0;
     peer.decoder = opus_decoder_create(kSampleRate, 1, &err);
@@ -139,18 +148,28 @@ void voice_rx(uint32_t session, uint32_t /*seq*/, const uint8_t* opus, size_t le
 void compute_gain_pan(const PeerAudio& peer, const MumbleVoiceConfig& cfg, float* gain_l,
                       float* gain_r) {
   float gain = cfg.volume;
+  // per-user adjustment (caller holds g_mutex)
+  if (peer.name[0]) {
+    auto it = g_user_volumes.find(peer.name);
+    if (it != g_user_volumes.end()) {
+      gain *= it->second;
+    }
+  }
   float pan = 0.f;
   if (cfg.positional && peer.has_pos) {
     float rel[3] = {peer.pos[0] - g_cam_pos[0], peer.pos[1] - g_cam_pos[1],
                     peer.pos[2] - g_cam_pos[2]};
     float dist = sqrtf(rel[0] * rel[0] + rel[1] * rel[1] + rel[2] * rel[2]);
-    if (dist > cfg.max_distance_m) {
-      *gain_l = *gain_r = 0.f;
-      return;
+    if (dist > cfg.max_distance_m || cfg.max_distance_m <= cfg.min_distance_m) {
+      if (dist > cfg.min_distance_m) {
+        *gain_l = *gain_r = 0.f;
+        return;
+      }
     }
     if (dist > cfg.min_distance_m) {
-      // linear falloff from min to max distance
-      gain *= 1.f - (dist - cfg.min_distance_m) / (cfg.max_distance_m - cfg.min_distance_m);
+      // falloff curve from min to max distance; exponent = aggression
+      float t = (dist - cfg.min_distance_m) / (cfg.max_distance_m - cfg.min_distance_m);
+      gain *= powf(1.f - t, cfg.falloff < 0.1f ? 0.1f : cfg.falloff);
     }
     if (dist > 0.01f) {
       // right axis = front x top (matches Mumble's left-handed convention)
@@ -226,12 +245,12 @@ long input_cb(cubeb_stream* /*stream*/, void* /*user*/, const void* input, void*
     }
     rms = sqrtf(rms / kFrameSamples);
 
-    bool open = cfg.transmit && rms >= cfg.mic_gate;
+    bool open = !cfg.mic_muted && rms >= cfg.mic_gate;
     if (open) {
       g_gate_hangover = kGateHangoverFrames;
     } else if (g_gate_hangover > 0) {
       g_gate_hangover--;
-      open = cfg.transmit;
+      open = !cfg.mic_muted;
     }
 
     {
@@ -398,6 +417,29 @@ MumbleVoiceConfig g_mumble_voice_config;
 MumbleVoiceStatus mumble_voice_get_status() {
   std::lock_guard<std::mutex> lock(g_mutex);
   return g_status;
+}
+
+void mumble_voice_set_user_volume(const char* name, float volume) {
+  if (!name || !name[0]) {
+    return;
+  }
+  std::lock_guard<std::mutex> lock(g_mutex);
+  if (volume == 1.f) {
+    g_user_volumes.erase(name);  // 1.0 = no adjustment, don't store
+  } else {
+    g_user_volumes[name] = volume;
+  }
+}
+
+float mumble_voice_get_user_volume(const char* name) {
+  std::lock_guard<std::mutex> lock(g_mutex);
+  auto it = g_user_volumes.find(name);
+  return it != g_user_volumes.end() ? it->second : 1.f;
+}
+
+std::unordered_map<std::string, float> mumble_voice_get_user_volumes() {
+  std::lock_guard<std::mutex> lock(g_mutex);
+  return g_user_volumes;
 }
 
 int mumble_voice_enum_devices(bool input, MumbleVoiceDeviceInfo* out, int max_count) {
