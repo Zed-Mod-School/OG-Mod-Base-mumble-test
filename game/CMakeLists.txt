@@ -110,6 +110,7 @@ set(RUNTIME_SOURCE
         kernel/common/ksound.cpp
         kernel/common/mumble_link.cpp
         kernel/common/mumble_native.cpp
+        kernel/common/mumble_voice.cpp
         kernel/jak1/fileio.cpp
         kernel/jak1/kboot.cpp
         kernel/jak1/kdgo.cpp
@@ -356,7 +357,7 @@ add_subdirectory(sound)
 # we build the runtime as a static library.
 add_library(runtime STATIC ${RUNTIME_SOURCE} "../third-party/glad/src/glad.c")
 
-target_link_libraries(runtime common fmt SDL3::SDL3 imgui discord-rpc sound stb_image libco libcurl)
+target_link_libraries(runtime common fmt SDL3::SDL3 imgui discord-rpc sound stb_image libco libcurl cubeb opus)
 if(WIN32)
     target_link_libraries(runtime mman)
 else()

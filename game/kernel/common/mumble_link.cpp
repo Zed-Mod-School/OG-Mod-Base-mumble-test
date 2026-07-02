@@ -16,6 +16,7 @@
 
 #include "game/kernel/common/mumble_native.h"
 #include "game/kernel/common/mumble_peers_shm.h"
+#include "game/kernel/common/mumble_voice.h"
 
 #ifdef _WIN32
 #define WIN32_LEAN_AND_MEAN
@@ -219,10 +220,6 @@ void mumble_link_update(const float avatar_pos[3],
   }
   // feed the native in-game client too (no-op unless connected)
   mumble_native_update_position(avatar_pos);
-  if (!link_ready()) {
-    return;
-  }
-  status.connected = true;
 
   float scale = tuning.override_world_scale ? tuning.world_scale : goal_world_scale;
   if (!(scale > 0.f)) {
@@ -248,6 +245,19 @@ void mumble_link_update(const float avatar_pos[3],
     c_top[i] = pos_sign * camera_top[i];
   }
 
+  memcpy(status.avatar_pos, a_pos, sizeof(a_pos));
+  memcpy(status.camera_pos, c_pos, sizeof(c_pos));
+  memcpy(status.camera_front, c_front, sizeof(c_front));
+
+  // native voice engine: start/stop with the native connection and keep the
+  // mixer's listener + transmitter transforms fresh (Mumble-meter space)
+  mumble_voice_maintain(a_pos, c_pos, c_front, c_top);
+
+  if (!link_ready()) {
+    return;  // no external Mumble running - native path already handled above
+  }
+  status.connected = true;
+
   // Mumble zeroes uiVersion when the link is (re)initialized, so re-send the
   // static info whenever it isn't set.
   if (g_link->uiVersion != 2) {
@@ -267,8 +277,5 @@ void mumble_link_update(const float avatar_pos[3],
   memcpy(g_link->fCameraFront, c_front, sizeof(c_front));
   memcpy(g_link->fCameraTop, c_top, sizeof(c_top));
 
-  memcpy(status.avatar_pos, a_pos, sizeof(a_pos));
-  memcpy(status.camera_pos, c_pos, sizeof(c_pos));
-  memcpy(status.camera_front, c_front, sizeof(c_front));
   status.updates_sent++;
 }

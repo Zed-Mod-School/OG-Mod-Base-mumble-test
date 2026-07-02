@@ -58,3 +58,24 @@ void mumble_native_update_position(const float pos[3]);
 // Peers seen through the native connection (same contract as
 // mumble_link_get_peers; out must hold >= kMaxMumblePeers entries).
 int mumble_native_get_peers(MumbleLinkPeer* out);
+
+// ---------------- voice transport (used by mumble_voice.cpp) ----------------
+
+// Incoming voice frame from another user: opus payload plus the sender's
+// position in Mumble meters if the packet carried one (pos == nullptr if not).
+// Called from the client thread.
+using MumbleVoiceRxFn = void (*)(uint32_t session,
+                                 uint32_t sequence,
+                                 const uint8_t* opus,
+                                 size_t opus_len,
+                                 const float* pos);
+void mumble_native_set_voice_rx(MumbleVoiceRxFn fn);
+
+// Queue one encoded opus frame for transmission (thread-safe). `pos` is our
+// position in Mumble meters, or nullptr to send non-positional audio.
+// `end_of_transmission` marks the last frame when the mic closes.
+void mumble_native_send_voice(const uint8_t* opus,
+                              size_t opus_len,
+                              uint32_t sequence,
+                              const float pos[3],
+                              bool end_of_transmission);

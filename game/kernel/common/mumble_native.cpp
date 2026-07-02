@@ -60,6 +60,11 @@ struct PositionPayload {
 constexpr auto kSendInterval = std::chrono::milliseconds(200);
 constexpr auto kPingInterval = std::chrono::seconds(15);
 
+// We announce protocol 1.4 so the server uses the legacy voice-packet framing
+// (simple varints) instead of 1.5's protobuf UDP packets. Everything else we
+// use (plugin data, control messages) is identical between the two.
+constexpr uint32_t kAnnounceVersion = (1u << 16) | (4u << 8) | 230u;  // 1.4.230
+
 // ---------------- minimal protobuf writer/reader ----------------
 
 struct PbWriter {
@@ -168,6 +173,10 @@ uint32_t g_local_pos_tick = 0;
 
 std::thread g_thread;
 std::atomic<bool> g_run{false};
+
+MumbleVoiceRxFn g_voice_rx = nullptr;
+std::mutex g_voice_tx_mutex;
+std::vector<std::vector<uint8_t>> g_voice_tx;  // fully-framed legacy voice packets
 
 void set_status(MumbleNativeState state, const char* msg) {
   std::lock_guard<std::mutex> lock(g_mutex);
@@ -361,6 +370,111 @@ void handle_plugin_data(const uint8_t* data, size_t len) {
   g_status.positions_received++;
 }
 
+// ---------------- legacy voice packet framing ----------------
+// (protocol 1.4: 1 header byte, then varints - see Mumble docs "UDP packets")
+
+void put_voice_varint(std::vector<uint8_t>& out, uint64_t v) {
+  // Mumble's own varint format (NOT protobuf's): 7-bit values in one byte,
+  // larger values with prefix bits. We only need the small encodings.
+  if (v < 0x80) {
+    out.push_back((uint8_t)v);
+  } else if (v < 0x4000) {
+    out.push_back((uint8_t)(0x80 | (v >> 8)));
+    out.push_back((uint8_t)(v & 0xff));
+  } else if (v < 0x200000) {
+    out.push_back((uint8_t)(0xC0 | (v >> 16)));
+    out.push_back((uint8_t)((v >> 8) & 0xff));
+    out.push_back((uint8_t)(v & 0xff));
+  } else {
+    out.push_back(0xF4);  // 64-bit marker
+    for (int i = 7; i >= 0; i--) {
+      out.push_back((uint8_t)((v >> (i * 8)) & 0xff));
+    }
+  }
+}
+
+bool get_voice_varint(const uint8_t*& p, const uint8_t* end, uint64_t* out) {
+  if (p >= end) {
+    return false;
+  }
+  uint8_t b = *p++;
+  if ((b & 0x80) == 0) {
+    *out = b;
+  } else if ((b & 0xC0) == 0x80) {
+    if (p >= end) {
+      return false;
+    }
+    *out = ((uint64_t)(b & 0x3F) << 8) | *p++;
+  } else if ((b & 0xE0) == 0xC0) {
+    if (end - p < 2) {
+      return false;
+    }
+    *out = ((uint64_t)(b & 0x1F) << 16) | ((uint64_t)p[0] << 8) | p[1];
+    p += 2;
+  } else if ((b & 0xF0) == 0xE0) {
+    if (end - p < 3) {
+      return false;
+    }
+    *out = ((uint64_t)(b & 0x0F) << 24) | ((uint64_t)p[0] << 16) | ((uint64_t)p[1] << 8) | p[2];
+    p += 3;
+  } else if ((b & 0xFC) == 0xF0) {
+    if (end - p < 4) {
+      return false;
+    }
+    *out = ((uint64_t)p[0] << 24) | ((uint64_t)p[1] << 16) | ((uint64_t)p[2] << 8) | p[3];
+    p += 4;
+  } else if ((b & 0xFC) == 0xF4) {
+    if (end - p < 8) {
+      return false;
+    }
+    uint64_t v = 0;
+    for (int i = 0; i < 8; i++) {
+      v = (v << 8) | *p++;
+    }
+    *out = v;
+  } else {
+    return false;  // negative/recursive encodings - not used for our fields
+  }
+  return true;
+}
+
+// server -> client voice packet inside a UDPTunnel message
+void handle_udp_tunnel(const uint8_t* data, size_t len) {
+  if (!g_voice_rx || len < 2) {
+    return;
+  }
+  const uint8_t* p = data;
+  const uint8_t* end = data + len;
+  uint8_t header = *p++;
+  uint8_t type = header >> 5;
+  if (type != 4) {  // 4 = OPUS; ignore ping (1) and dead codecs
+    return;
+  }
+  uint64_t session, sequence, opus_header;
+  if (!get_voice_varint(p, end, &session) || !get_voice_varint(p, end, &sequence) ||
+      !get_voice_varint(p, end, &opus_header)) {
+    return;
+  }
+  size_t opus_len = (size_t)(opus_header & 0x1FFF);
+  if ((size_t)(end - p) < opus_len) {
+    return;
+  }
+  const uint8_t* opus = p;
+  p += opus_len;
+  // optional trailing position (3 floats)
+  float pos[3];
+  const float* pos_ptr = nullptr;
+  if (end - p >= 12) {
+    memcpy(pos, p, 12);
+    pos_ptr = pos;
+    // keep the peer table position fresh from voice packets too - while a
+    // peer talks this updates at frame rate instead of the 5 Hz plugin data.
+    // Voice positions are Mumble meters; the peers table stores raw game
+    // units, so this is only merged in the voice mixer (mumble_voice.cpp).
+  }
+  g_voice_rx((uint32_t)session, (uint32_t)sequence, opus, opus_len, pos_ptr);
+}
+
 // returns the reject reason, or empty if not a reject we could parse
 std::string parse_reject(const uint8_t* data, size_t len) {
   PbReader r(data, len);
@@ -393,7 +507,7 @@ void client_thread_main(MumbleNativeConfig cfg) {
   // handshake: Version then Authenticate
   {
     PbWriter v;
-    v.field_varint(1, (1u << 16) | (5u << 8) | 0u);  // version_v1: 1.5.0
+    v.field_varint(1, kAnnounceVersion);
     v.field_string(2, "OpenGOAL Jak 1 native client");
     v.field_string(3, "OpenGOAL");
     conn.send_message(MT_Version, v.buf);
@@ -417,8 +531,28 @@ void client_thread_main(MumbleNativeConfig cfg) {
     fd_set rfds;
     FD_ZERO(&rfds);
     FD_SET(conn.sock, &rfds);
-    timeval tv{0, 100 * 1000};  // 100 ms
+    timeval tv{0, 10 * 1000};  // 10 ms - voice frames ride this loop
     select((int)conn.sock + 1, &rfds, nullptr, nullptr, &tv);
+
+    // drain queued voice packets (encoded by the capture thread)
+    if (synced) {
+      std::vector<std::vector<uint8_t>> voice;
+      {
+        std::lock_guard<std::mutex> lock(g_voice_tx_mutex);
+        voice.swap(g_voice_tx);
+      }
+      bool voice_err = false;
+      for (auto& pkt : voice) {
+        if (!conn.send_message(MT_UDPTunnel, pkt)) {
+          voice_err = true;
+          break;
+        }
+      }
+      if (voice_err) {
+        set_status(MumbleNativeState::Failed, "connection lost");
+        break;
+      }
+    }
 
     if (!conn.pump_recv()) {
       set_status(MumbleNativeState::Failed, "connection lost");
@@ -458,8 +592,10 @@ void client_thread_main(MumbleNativeConfig cfg) {
         case MT_PluginDataTransmission:
           handle_plugin_data(payload.data(), payload.size());
           break;
+        case MT_UDPTunnel:
+          handle_udp_tunnel(payload.data(), payload.size());
+          break;
         case MT_Ping:
-        case MT_UDPTunnel:  // voice - phase 2
         default:
           break;  // ignore everything else (channels, ACLs, codecs, ...)
       }
@@ -543,6 +679,10 @@ void mumble_native_connect() {
     set_status(MumbleNativeState::Failed, "set a username first");
     return;
   }
+  {
+    std::lock_guard<std::mutex> lock(g_voice_tx_mutex);
+    g_voice_tx.clear();
+  }
   g_run = true;
   g_thread = std::thread(client_thread_main, g_mumble_native_config);
 }
@@ -568,6 +708,38 @@ void mumble_native_update_position(const float pos[3]) {
   std::lock_guard<std::mutex> lock(g_mutex);
   memcpy(g_local_pos, pos, sizeof(g_local_pos));
   g_local_pos_tick++;
+}
+
+void mumble_native_set_voice_rx(MumbleVoiceRxFn fn) {
+  g_voice_rx = fn;
+}
+
+void mumble_native_send_voice(const uint8_t* opus,
+                              size_t opus_len,
+                              uint32_t sequence,
+                              const float pos[3],
+                              bool end_of_transmission) {
+  if (opus_len == 0 || opus_len > 0x1FFF) {
+    return;
+  }
+  std::vector<uint8_t> pkt;
+  pkt.reserve(1 + 4 + 2 + opus_len + 12);
+  pkt.push_back(0x80);  // type OPUS (4) << 5 | target 0 (normal talking)
+  put_voice_varint(pkt, sequence);
+  uint64_t opus_header = opus_len;
+  if (end_of_transmission) {
+    opus_header |= 0x2000;  // terminator bit
+  }
+  put_voice_varint(pkt, opus_header);
+  pkt.insert(pkt.end(), opus, opus + opus_len);
+  if (pos) {
+    const uint8_t* pb = (const uint8_t*)pos;
+    pkt.insert(pkt.end(), pb, pb + 12);
+  }
+  std::lock_guard<std::mutex> lock(g_voice_tx_mutex);
+  if (g_voice_tx.size() < 64) {  // drop if the connection is stalled
+    g_voice_tx.push_back(std::move(pkt));
+  }
 }
 
 int mumble_native_get_peers(MumbleLinkPeer* out) {

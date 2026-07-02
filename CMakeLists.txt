@@ -263,6 +263,13 @@ add_subdirectory(decompiler)
 # cubeb - audio
 build_third_party_lib(cubeb cubeb)
 
+# opus - voice codec for the native Mumble client
+# (opus follows BUILD_SHARED_LIBS; force its extras off - BUILD_TESTING is on
+# for this project but we don't want opus's tests in the build)
+set(OPUS_BUILD_TESTING OFF)
+set(OPUS_BUILD_PROGRAMS OFF)
+build_third_party_lib(opus opus)
+
 # build LSP
 add_subdirectory(lsp)
 

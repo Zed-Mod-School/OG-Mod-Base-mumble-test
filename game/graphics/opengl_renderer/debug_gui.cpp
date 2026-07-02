@@ -10,6 +10,7 @@
 #include "game/graphics/screenshot.h"
 #include "game/kernel/common/mumble_link.h"
 #include "game/kernel/common/mumble_native.h"
+#include "game/kernel/common/mumble_voice.h"
 #include "game/overlord/jak3/dma.h"
 #include "game/system/hid/sdl_util.h"
 
@@ -197,6 +198,27 @@ void OpenGlDebugGui::draw(const DmaStats& dma_stats) {
           ImGui::Text("session %u | %d user(s) | pos sent %u recv %u", native.session,
                       native.user_count, native.positions_sent, native.positions_received);
         }
+
+        ImGui::SeparatorText("Voice");
+        auto& vcfg = g_mumble_voice_config;
+        auto voice = mumble_voice_get_status();
+        ImGui::Checkbox("Transmit (mic)", &vcfg.transmit);
+        ImGui::SameLine();
+        if (voice.transmitting) {
+          ImGui::TextColored(ImVec4(0.3f, 1.0f, 0.3f, 1.0f), "talking");
+        } else {
+          ImGui::TextUnformatted(voice.capture_running ? "quiet" : "mic off");
+        }
+        ImGui::ProgressBar(voice.mic_level * 10.f > 1.f ? 1.f : voice.mic_level * 10.f,
+                           ImVec2(-1, 4), "");
+        ImGui::SliderFloat("Mic Gate", &vcfg.mic_gate, 0.f, 0.2f, "%.3f");
+        ImGui::SliderFloat("Volume", &vcfg.volume, 0.f, 3.f, "%.2f");
+        ImGui::Checkbox("Positional Audio", &vcfg.positional);
+        ImGui::SliderFloat("Min Distance (m)", &vcfg.min_distance_m, 0.5f, 20.f, "%.1f");
+        ImGui::SliderFloat("Max Distance (m)", &vcfg.max_distance_m, 5.f, 200.f, "%.1f");
+        ImGui::Text("%s | %d talking | tx %u rx %u", voice.message, voice.talking_peers,
+                    voice.frames_sent, voice.frames_received);
+
         ImGui::TreePop();
       }
 
