@@ -17,7 +17,9 @@
 
 #include <atomic>
 #include <chrono>
+#include <cstdarg>
 #include <cstdint>
+#include <cstdio>
 #include <cstring>
 #include <mutex>
 #include <thread>
@@ -60,6 +62,19 @@ std::mutex g_shm_write_mutex;  // orders the plugin's own writers (send thread v
 
 std::thread g_send_thread;
 std::atomic<bool> g_running{false};
+
+// Log to Mumble's console (Help -> Console, or the log window).
+void plog(const char* fmt, ...) {
+  if (!g_api.log) {
+    return;
+  }
+  char buf[256];
+  va_list ap;
+  va_start(ap, fmt);
+  vsnprintf(buf, sizeof(buf), fmt, ap);
+  va_end(ap);
+  g_api.log(g_plugin_id, buf);
+}
 
 // The game creates the shared memory block; retry until it exists (the player
 // may start Mumble before the game).
@@ -154,6 +169,68 @@ void broadcast_local_position() {
                    sizeof(payload), kDataID);
   }
   g_api.freeMemory(g_plugin_id, users);
+
+  // log only when the peer count changes, so the console shows whether this
+  // client can actually see the others (0 peers = clients don't see each other;
+  // >0 but nobody receives = a relay/plugin problem on the other end)
+  static size_t last_logged_targets = (size_t)-1;
+  if (target_count != last_logged_targets) {
+    plog("OpenGOAL Jak 1: %zu user(s) on server, broadcasting to %zu peer(s).", user_count,
+         target_count);
+    last_logged_targets = target_count;
+  }
+}
+
+// Debug: mirror our own position back into a peer slot with no networking, so
+// the game->plugin->game path can be verified with a single player.
+void maybe_echo_self() {
+  if (!g_shm->echo_self) {
+    return;
+  }
+  std::lock_guard<std::mutex> lock(g_shm_write_mutex);
+  MumblePeerSlot* slot = nullptr;
+  for (auto& s : g_shm->peers) {
+    if (s.used && s.user_id == kMumbleEchoSelfUserId) {
+      slot = &s;
+      break;
+    }
+  }
+  if (!slot) {
+    for (auto& s : g_shm->peers) {
+      if (!s.used) {
+        slot = &s;
+        break;
+      }
+    }
+  }
+  if (!slot) {
+    return;
+  }
+  slot->user_id = kMumbleEchoSelfUserId;
+  snprintf(slot->name, sizeof(slot->name), "(you)");
+  memcpy(slot->pos, g_shm->local_pos, sizeof(slot->pos));
+  slot->last_update_ms = peers_now_ms();
+  slot->used = 1;
+}
+
+// If the plugin was enabled/loaded while already connected to a server,
+// mumble_onServerSynchronized won't fire again - so proactively adopt the
+// active, already-synchronized connection.
+void adopt_active_connection() {
+  if (g_connection.load() >= 0) {
+    return;
+  }
+  mumble_connection_t conn = -1;
+  if (g_api.getActiveServerConnection(g_plugin_id, &conn) != MUMBLE_STATUS_OK) {
+    return;
+  }
+  bool synchronized = false;
+  if (g_api.isConnectionSynchronized(g_plugin_id, conn, &synchronized) != MUMBLE_STATUS_OK ||
+      !synchronized) {
+    return;
+  }
+  g_connection = conn;
+  plog("OpenGOAL Jak 1: adopted already-active server connection.");
 }
 
 void send_thread_main() {
@@ -171,7 +248,9 @@ void send_thread_main() {
       }
       g_api.log(g_plugin_id, "OpenGOAL Jak 1: connected to game shared memory.");
     }
+    adopt_active_connection();
     broadcast_local_position();
+    maybe_echo_self();
     expire_stale_peers();
   }
 }
@@ -315,6 +394,8 @@ mumble_onReceiveData(mumble_connection_t connection,
       snprintf(slot->name, sizeof(slot->name), "%s", name);
       g_api.freeMemory(g_plugin_id, name);
     }
+    plog("OpenGOAL Jak 1: receiving position from %s.",
+         slot->name[0] ? slot->name : "another player");
   }
   memcpy(slot->pos, payload.pos, sizeof(slot->pos));
   slot->last_update_ms = peers_now_ms();

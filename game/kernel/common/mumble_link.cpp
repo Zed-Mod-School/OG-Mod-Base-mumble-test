@@ -209,6 +209,7 @@ void mumble_link_update(const float avatar_pos[3],
   if (g_peers) {
     memcpy(g_peers->local_pos, avatar_pos, sizeof(g_peers->local_pos));
     g_peers->local_tick++;
+    g_peers->echo_self = tuning.echo_self_test ? 1 : 0;
   }
   if (!link_ready()) {
     return;

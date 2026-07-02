@@ -22,9 +22,11 @@
 
 // bump kMumblePeersVersion when changing any of these structs
 constexpr uint32_t kMumblePeersMagic = 0x4A315058;  // "J1PX"
-constexpr uint32_t kMumblePeersVersion = 1;
+constexpr uint32_t kMumblePeersVersion = 2;
 constexpr int kMaxMumblePeers = 15;
 constexpr const char* kMumblePeersShmName = "OpenGOAL-Jak1-MumblePeers";
+// sentinel user id for the local echo-self debug slot (see echo_self below)
+constexpr uint32_t kMumbleEchoSelfUserId = 0xFFFFFFFEu;
 
 struct MumblePeerSlot {
   uint32_t used;            // 0 = free slot
@@ -40,6 +42,9 @@ struct MumblePeersShm {
   // game -> plugin
   uint32_t local_tick;  // bumped by the game every update; static = not in game
   float local_pos[3];   // raw game units
+  // debug: when nonzero, the plugin echoes local_pos back into a peer slot
+  // locally (no network) so the game->plugin->game path can be tested solo.
+  uint32_t echo_self;
   // plugin -> game
   MumblePeerSlot peers[kMaxMumblePeers];
 };

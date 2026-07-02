@@ -162,6 +162,7 @@ void OpenGlDebugGui::draw(const DmaStats& dma_stats) {
       ImGui::Text("Updates sent: %u", status.updates_sent);
 
       ImGui::Separator();
+      ImGui::Checkbox("Echo self (solo peer test)", &tuning.echo_self_test);
       MumbleLinkPeer peers[kMaxMumblePeers];
       int peer_count = mumble_link_get_peers(peers);
       ImGui::Text("Voice peers: %d", peer_count);

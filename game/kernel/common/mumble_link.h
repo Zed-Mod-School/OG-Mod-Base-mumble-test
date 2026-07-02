@@ -26,6 +26,9 @@ struct MumbleLinkTuning {
   bool mirror_x = false;
   // how often to retry opening Mumble's shared memory while not connected
   float retry_interval_s = 5.0f;
+  // debug: make the plugin echo our own position back as a peer (no network),
+  // so the game->plugin->game path can be verified solo. Draws a sphere on you.
+  bool echo_self_test = false;
 };
 
 // Read-only view of the most recent update, for the ImGui menu.
