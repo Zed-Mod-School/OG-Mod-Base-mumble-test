@@ -14,6 +14,7 @@
 #include "common/goal_constants.h"
 #include "common/log/log.h"
 
+#include "game/kernel/common/mumble_native.h"
 #include "game/kernel/common/mumble_peers_shm.h"
 
 #ifdef _WIN32
@@ -163,6 +164,11 @@ void peers_shm_init() {
 }  // namespace
 
 int mumble_link_get_peers(MumbleLinkPeer* out) {
+  // the native in-game client takes precedence over the external
+  // Mumble-plus-plugin path when it's connected
+  if (mumble_native_connected()) {
+    return mumble_native_get_peers(out);
+  }
   if (!g_peers) {
     return 0;
   }
@@ -211,6 +217,8 @@ void mumble_link_update(const float avatar_pos[3],
     g_peers->local_tick++;
     g_peers->echo_self = tuning.echo_self_test ? 1 : 0;
   }
+  // feed the native in-game client too (no-op unless connected)
+  mumble_native_update_position(avatar_pos);
   if (!link_ready()) {
     return;
   }

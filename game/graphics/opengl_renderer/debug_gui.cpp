@@ -9,6 +9,7 @@
 #include "game/graphics/gfx.h"
 #include "game/graphics/screenshot.h"
 #include "game/kernel/common/mumble_link.h"
+#include "game/kernel/common/mumble_native.h"
 #include "game/overlord/jak3/dma.h"
 #include "game/system/hid/sdl_util.h"
 
@@ -160,6 +161,44 @@ void OpenGlDebugGui::draw(const DmaStats& dma_stats) {
       ImGui::Text("Cam Front:  %7.2f %7.2f %7.2f", status.camera_front[0], status.camera_front[1],
                   status.camera_front[2]);
       ImGui::Text("Updates sent: %u", status.updates_sent);
+
+      ImGui::Separator();
+      if (ImGui::TreeNode("Native Client (no Mumble app needed)")) {
+        auto& cfg = g_mumble_native_config;
+        auto native = mumble_native_get_status();
+        ImGui::InputText("Server", cfg.host, sizeof(cfg.host));
+        ImGui::InputInt("Port", &cfg.port);
+        ImGui::InputText("Username", cfg.username, sizeof(cfg.username));
+        ImGui::InputText("Password", cfg.password, sizeof(cfg.password),
+                         ImGuiInputTextFlags_Password);
+        if (native.state == MumbleNativeState::Connected ||
+            native.state == MumbleNativeState::Connecting) {
+          if (ImGui::Button("Disconnect")) {
+            mumble_native_disconnect();
+          }
+        } else {
+          if (ImGui::Button("Connect")) {
+            mumble_native_connect();
+          }
+        }
+        ImGui::SameLine();
+        switch (native.state) {
+          case MumbleNativeState::Connected:
+            ImGui::TextColored(ImVec4(0.3f, 1.0f, 0.3f, 1.0f), "%s", native.message);
+            break;
+          case MumbleNativeState::Failed:
+            ImGui::TextColored(ImVec4(1.0f, 0.3f, 0.3f, 1.0f), "%s", native.message);
+            break;
+          default:
+            ImGui::TextUnformatted(native.message);
+            break;
+        }
+        if (native.state == MumbleNativeState::Connected) {
+          ImGui::Text("session %u | %d user(s) | pos sent %u recv %u", native.session,
+                      native.user_count, native.positions_sent, native.positions_received);
+        }
+        ImGui::TreePop();
+      }
 
       ImGui::Separator();
       ImGui::Checkbox("Echo self (solo peer test)", &tuning.echo_self_test);
