@@ -1,10 +1,10 @@
 {
   "schemaVersion": "1.0.0",
   "sourceName": "OG-Mod-Base-mumble-test",
-  "lastUpdated": "2026-07-02T23:54:58Z",
+  "lastUpdated": "2026-07-03T00:09:03Z",
   "mods": {
-    "mumble-proximity-chat": {
-      "displayName": "Mumble Proximity Chat",
+    "mumble-proximity-chat-beta": {
+      "displayName": "Mumble Proximity Chat - BETA",
       "description": "Proximity voice chat for Jak 1 via the Mumble Link plugin. Voice volume and direction follow player and camera positions in-game.",
       "authors": [
         "Zed"
@@ -20,7 +20,7 @@
       "versions": [
         {
           "version": "0.0.2-native-mumble.2",
-          "publishedDate": "2026-07-02T23:54:58Z",
+          "publishedDate": "2026-07-03T00:09:03Z",
           "supportedGames": [
             "jak1"
           ],
@@ -138,8 +138,8 @@
           }
         }
       ],
-      "coverArtUrl": null,
-      "thumbnailArtUrl": null,
+      "coverArtUrl": "https://raw.githubusercontent.com/Zed-Mod-School/OG-Mod-Base-mumble-test/main/.github/assets/mod-cover.png",
+      "thumbnailArtUrl": "https://raw.githubusercontent.com/Zed-Mod-School/OG-Mod-Base-mumble-test/main/.github/assets/mod-cover.png",
       "perGameConfig": null,
       "externalLink": null
     }
