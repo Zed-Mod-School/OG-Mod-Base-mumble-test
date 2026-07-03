@@ -351,7 +351,47 @@
   (none)
   )
 
+;;;;;;;;;;;;;;;;;;;;;;;;;;
+;; Mumble proximity voice chat (native client in gk - see game/kernel/common/mumble_*.cpp)
+;;;;;;;;;;;;;;;;;;;;;;;;;;
+
+;; Mumble proximity chat: divisor applied on top of the game-units->meters
+;; conversion. 1.0 = true world scale; larger values shrink the world so
+;; voices stay audible over longer in-game distances.
+(define *mumble-world-scale* 7.02)
+
+(defun update-mumble-link ()
+  "Send the player's position and the camera transform to Mumble for proximity voice chat."
+  (when (and *target* *math-camera*)
+    ;; joint 5 (chest) instead of control trans: bone positions keep updating
+    ;; during cutscenes when the target's trans doesn't. Same joint the engine
+    ;; uses for aim-at-Jak logic (sharkey, pelican, robotboss).
+    (pc-mumble-link-update (the-as uint (target-pos 5))
+                           (the-as uint (camera-pos))
+                           (the-as uint (-> *math-camera* inv-camera-rot))
+                           *mumble-world-scale*))
+  (none))
+
+;; Draw a sphere at each Mumble voice peer's position. TeamRuns renders remote
+;; players as real models, so this debug aid is off by default here.
+(define *mumble-draw-peers* #f)
+(define *mumble-peer-scratch* (new 'global 'vector))
+
+(defun draw-mumble-peers ()
+  "Draw a debug sphere where each Mumble voice peer is standing."
+  (when (and *mumble-draw-peers* *debug-segment*)
+    (dotimes (i (pc-mumble-get-peer-count))
+      (when (nonzero? (pc-mumble-get-peer-pos i (the-as uint *mumble-peer-scratch*)))
+        (add-debug-sphere #t
+                          (bucket-id debug-no-zbuf)
+                          *mumble-peer-scratch*
+                          (meters 1.5)
+                          (new 'static 'rgba :r #x20 :g #x80 :b #xff :a #x80)))))
+  (none))
+
 (defun runs-every-frame ()
+  (update-mumble-link)
+  (draw-mumble-peers)
   ;;(increase-power-cell-by-one) This is a call to increase-power-cell-by-one defined in mod-common-functions.gc
   (if *show-input-display* (input-display-on) (input-display-off))
   ;; ensure orb-placer is spawned/killed as requested, debug menu is updated

@@ -185,6 +185,10 @@ endfunction()
 # includes relative to top level jak-project folder
 include_directories(./)
 
+# the vendored fmt predates clang 17+'s stricter consteval rules; disable
+# fmt's consteval format-string checking (checks happen at runtime instead)
+add_compile_definitions(FMT_CONSTEVAL=)
+
 # build templating engine library
 include_directories(SYSTEM third-party/inja)
 
@@ -239,6 +243,13 @@ add_subdirectory(decompiler)
 
 # cubeb - audio
 build_third_party_lib(cubeb cubeb)
+
+# opus - voice codec for the native Mumble client
+# (opus follows BUILD_SHARED_LIBS; force its extras off - BUILD_TESTING is on
+# for this project but we don't want opus's tests in the build)
+set(OPUS_BUILD_TESTING OFF)
+set(OPUS_BUILD_PROGRAMS OFF)
+build_third_party_lib(opus opus)
 
 # build LSP
 add_subdirectory(lsp)

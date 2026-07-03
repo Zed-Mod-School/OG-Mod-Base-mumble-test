@@ -579,6 +579,17 @@
 
 (define-extern pc-set-game-resolution (function int int none))
 
+;; Mumble proximity voice chat. Args: avatar trans (vector), camera trans (vector),
+;; camera rotation (matrix, inv-camera-rot), world scale divisor.
+;; Declared with uint pointers because vector/matrix aren't defined yet here.
+(define-extern pc-mumble-link-update (function uint uint uint float none))
+
+;; Voice peer positions from the native Mumble client (or external plugin).
+;; peer-pos args: peer index, GOAL vector pointer (raw game units out).
+;; Returns 1 on success, 0 if the peer vanished.
+(define-extern pc-mumble-get-peer-count (function int))
+(define-extern pc-mumble-get-peer-pos (function int uint int))
+
 (define-extern pc-set-msaa (function int none))
 
 (define-extern pc-set-gfx-hack (function pc-gfx-hack symbol none))

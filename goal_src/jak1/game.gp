@@ -2111,7 +2111,6 @@
 (goal-src "pc/debug/pc-debug-methods.gc" "pc-debug-common")
 
 (goal-src "engine/mods/input-display.gc")
-(goal-src "engine/mods/orb-placer.gc")
 (goal-src "engine/mods/taunt-menu.gc")
 
 (goal-src-sequence
@@ -2124,6 +2123,8 @@
  "mods/mod-text-render.gc"
  "mods/mod-remote-interaction.gc"
  "mods/mod-common-functions.gc"
+ ;; after mod-common-functions: uses spawn-money
+ "mods/orb-placer.gc"
  "mods/mod-custom-code.gc"
  "mods/mod-debug.gc"
 )

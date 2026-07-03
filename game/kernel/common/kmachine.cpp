@@ -51,6 +51,7 @@ namespace MiniAudioLib {
 #include "game/kernel/common/kernel_types.h"
 #include "game/kernel/common/kprint.h"
 #include "game/kernel/common/kscheme.h"
+#include "game/kernel/common/mumble_link.h"
 #include "game/mips2c/mips2c_table.h"
 #include "game/sce/libcdvd_ee.h"
 #include "game/sce/libpad.h"
@@ -1008,6 +1009,60 @@ void pc_set_game_resolution(int w, int h) {
   Gfx::g_global_settings.game_res_h = h;
 }
 
+/*!
+ * Push the player's avatar + camera transform to Mumble for proximity voice chat.
+ * Limited to 4 args by the win32 GOAL->C trampoline, so orientation comes in as a
+ * whole rotation matrix instead of separate front/top vectors.
+ *
+ * - avatar_trans / cam_trans: GOAL `vector` pointers, world position in game units.
+ * - cam_rot: GOAL `matrix` pointer (inv-camera-rot), rows are the camera basis
+ *   vectors in world space (row 1 = up, row 2 = forward).
+ * - world_scale: divisor applied on top of the 4096 units-per-meter conversion.
+ */
+void pc_mumble_link_update(u32 avatar_trans, u32 cam_trans, u32 cam_rot, u32 world_scale) {
+  float scale;
+  memcpy(&scale, &world_scale, sizeof(float));
+
+  const float* avatar = Ptr<float>(avatar_trans).c();
+  const float* cam = Ptr<float>(cam_trans).c();
+  const float* rot = Ptr<float>(cam_rot).c();
+
+  // matrix rows are 4 floats wide; direction vectors are unit length already.
+  const float cam_top[3] = {rot[4], rot[5], rot[6]};
+  const float cam_front[3] = {rot[8], rot[9], rot[10]};
+  const float avatar_pos[3] = {avatar[0], avatar[1], avatar[2]};
+  const float cam_pos[3] = {cam[0], cam[1], cam[2]};
+
+  mumble_link_update(avatar_pos, cam_front, cam_top, cam_pos, cam_front, cam_top, scale);
+}
+
+/*!
+ * Number of Mumble voice peers with a fresh position.
+ */
+u32 pc_mumble_get_peer_count() {
+  MumbleLinkPeer peers[kMaxMumblePeers];
+  return mumble_link_get_peers(peers);
+}
+
+/*!
+ * Copy peer `index`'s position (raw game units) into the GOAL vector at
+ * `out_vec`. Returns 1 on success, 0 if the peer disappeared since the
+ * count was taken.
+ */
+u32 pc_mumble_get_peer_pos(u32 index, u32 out_vec) {
+  MumbleLinkPeer peers[kMaxMumblePeers];
+  int count = mumble_link_get_peers(peers);
+  if ((int)index >= count) {
+    return 0;
+  }
+  float* out = Ptr<float>(out_vec).c();
+  out[0] = peers[index].pos[0];
+  out[1] = peers[index].pos[1];
+  out[2] = peers[index].pos[2];
+  out[3] = 1.f;
+  return 1;
+}
+
 void pc_set_letterbox(int w, int h) {
   Gfx::g_global_settings.lbox_w = w;
   Gfx::g_global_settings.lbox_h = h;
@@ -1179,6 +1234,9 @@ void init_common_pc_port_functions(
   make_func_symbol_func("pc-set-msaa", (void*)pc_set_msaa);
   make_func_symbol_func("pc-set-frame-rate", (void*)pc_set_frame_rate);
   make_func_symbol_func("pc-set-game-resolution", (void*)pc_set_game_resolution);
+  make_func_symbol_func("pc-mumble-link-update", (void*)pc_mumble_link_update);
+  make_func_symbol_func("pc-mumble-get-peer-count", (void*)pc_mumble_get_peer_count);
+  make_func_symbol_func("pc-mumble-get-peer-pos", (void*)pc_mumble_get_peer_pos);
   make_func_symbol_func("pc-set-letterbox", (void*)pc_set_letterbox);
   make_func_symbol_func("pc-renderer-tree-set-lod", (void*)pc_renderer_tree_set_lod);
   make_func_symbol_func("pc-set-collision-mode", (void*)Gfx::CollisionRendererSetMode);

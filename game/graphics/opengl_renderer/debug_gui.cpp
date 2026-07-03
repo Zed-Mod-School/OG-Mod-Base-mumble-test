@@ -3,9 +3,15 @@
 #include "common/global_profiler/GlobalProfiler.h"
 #include "common/util/string_util.h"
 
+#include <vector>
+
 #include "game/graphics/display.h"
 #include "game/graphics/gfx.h"
 #include "game/graphics/screenshot.h"
+#include "game/kernel/common/mumble_config.h"
+#include "game/kernel/common/mumble_link.h"
+#include "game/kernel/common/mumble_native.h"
+#include "game/kernel/common/mumble_voice.h"
 #include "game/system/hid/sdl_util.h"
 
 #include "fmt/core.h"
@@ -123,6 +129,180 @@ void OpenGlDebugGui::draw(const DmaStats& dma_stats) {
       }
       ImGui::MenuItem("Subtitle Editor", nullptr, &m_subtitle_editor);
       ImGui::MenuItem("Debug Text Filter", nullptr, &m_filters_menu);
+      ImGui::EndMenu();
+    }
+
+    if (ImGui::BeginMenu("Mumble")) {
+      auto& tuning = g_mumble_link_tuning;
+      const auto& status = g_mumble_link_status;
+
+      if (status.connected) {
+        ImGui::TextColored(ImVec4(0.3f, 1.0f, 0.3f, 1.0f), "Link: connected");
+      } else {
+        ImGui::TextColored(ImVec4(1.0f, 0.3f, 0.3f, 1.0f), "Link: not connected");
+      }
+      ImGui::Separator();
+
+      ImGui::Checkbox("Enabled", &tuning.enabled);
+      ImGui::Checkbox("Override World Scale", &tuning.override_world_scale);
+      ImGui::BeginDisabled(!tuning.override_world_scale);
+      ImGui::SliderFloat("World Scale", &tuning.world_scale, 0.1f, 100.0f, "%.2f",
+                         ImGuiSliderFlags_Logarithmic);
+      ImGui::EndDisabled();
+      ImGui::Text("GOAL scale: %.2f | effective: %.2f", status.goal_scale, status.effective_scale);
+      ImGui::Checkbox("Mirror X (flip left/right audio)", &tuning.mirror_x);
+      ImGui::SliderFloat("Reconnect Interval (s)", &tuning.retry_interval_s, 1.0f, 30.0f, "%.0f");
+
+      ImGui::Separator();
+      ImGui::Text("Avatar (m): %7.2f %7.2f %7.2f", status.avatar_pos[0], status.avatar_pos[1],
+                  status.avatar_pos[2]);
+      ImGui::Text("Camera (m): %7.2f %7.2f %7.2f", status.camera_pos[0], status.camera_pos[1],
+                  status.camera_pos[2]);
+      ImGui::Text("Updates sent: %u", status.updates_sent);
+
+      ImGui::Separator();
+      if (ImGui::TreeNode("Native Client (no Mumble app needed)")) {
+        mumble_config_load();  // no-op after the first call
+        bool save_settings = false;
+        auto& cfg = g_mumble_native_config;
+        auto native = mumble_native_get_status();
+        ImGui::InputText("Server", cfg.host, sizeof(cfg.host));
+        save_settings |= ImGui::IsItemDeactivatedAfterEdit();
+        ImGui::InputInt("Port", &cfg.port);
+        save_settings |= ImGui::IsItemDeactivatedAfterEdit();
+        ImGui::InputText("Username", cfg.username, sizeof(cfg.username));
+        save_settings |= ImGui::IsItemDeactivatedAfterEdit();
+        ImGui::InputText("Password", cfg.password, sizeof(cfg.password),
+                         ImGuiInputTextFlags_Password);
+        save_settings |= ImGui::IsItemDeactivatedAfterEdit();
+        if (native.state == MumbleNativeState::Connected ||
+            native.state == MumbleNativeState::Connecting) {
+          if (ImGui::Button("Disconnect")) {
+            mumble_native_disconnect();
+          }
+        } else {
+          if (ImGui::Button("Connect")) {
+            save_settings = true;
+            mumble_native_connect();
+          }
+        }
+        ImGui::SameLine();
+        switch (native.state) {
+          case MumbleNativeState::Connected:
+            ImGui::TextColored(ImVec4(0.3f, 1.0f, 0.3f, 1.0f), "%s", native.message);
+            break;
+          case MumbleNativeState::Failed:
+            ImGui::TextColored(ImVec4(1.0f, 0.3f, 0.3f, 1.0f), "%s", native.message);
+            break;
+          default:
+            ImGui::TextUnformatted(native.message);
+            break;
+        }
+        if (native.state == MumbleNativeState::Connected) {
+          ImGui::Text("session %u | %d user(s) | pos sent %u recv %u", native.session,
+                      native.user_count, native.positions_sent, native.positions_received);
+        }
+
+        ImGui::Separator();
+        ImGui::TextUnformatted("Voice");
+        auto& vcfg = g_mumble_voice_config;
+        auto voice = mumble_voice_get_status();
+
+        // audio device pickers (cached; refresh on demand)
+        static std::vector<MumbleVoiceDeviceInfo> s_in_devs, s_out_devs;
+        static bool s_devs_loaded = false;
+        if (!s_devs_loaded || ImGui::SmallButton("Refresh Devices")) {
+          s_devs_loaded = true;
+          s_in_devs.resize(32);
+          s_in_devs.resize(mumble_voice_enum_devices(true, s_in_devs.data(), 32));
+          s_out_devs.resize(32);
+          s_out_devs.resize(mumble_voice_enum_devices(false, s_out_devs.data(), 32));
+        }
+        auto device_combo = [&save_settings](const char* label,
+                                             const std::vector<MumbleVoiceDeviceInfo>& devs,
+                                             char* cfg_id, size_t cfg_id_size) {
+          const char* current = "(System Default)";
+          for (const auto& d : devs) {
+            if (strcmp(d.id, cfg_id) == 0) {
+              current = d.name;
+              break;
+            }
+          }
+          if (ImGui::BeginCombo(label, current)) {
+            if (ImGui::Selectable("(System Default)", cfg_id[0] == 0)) {
+              cfg_id[0] = 0;
+              save_settings = true;
+            }
+            for (const auto& d : devs) {
+              if (ImGui::Selectable(d.name, strcmp(d.id, cfg_id) == 0)) {
+                snprintf(cfg_id, cfg_id_size, "%s", d.id);
+                save_settings = true;
+              }
+            }
+            ImGui::EndCombo();
+          }
+        };
+        device_combo("Microphone", s_in_devs, vcfg.input_device_id,
+                     sizeof(vcfg.input_device_id));
+        device_combo("Output Device", s_out_devs, vcfg.output_device_id,
+                     sizeof(vcfg.output_device_id));
+
+        save_settings |= ImGui::Checkbox("Mute Microphone", &vcfg.mic_muted);
+        ImGui::SameLine();
+        if (vcfg.mic_muted) {
+          ImGui::TextColored(ImVec4(1.0f, 0.5f, 0.2f, 1.0f), "muted");
+        } else if (voice.transmitting) {
+          ImGui::TextColored(ImVec4(0.3f, 1.0f, 0.3f, 1.0f), "talking");
+        } else {
+          ImGui::TextUnformatted(voice.capture_running ? "quiet" : "mic off");
+        }
+        ImGui::ProgressBar(voice.mic_level * 10.f > 1.f ? 1.f : voice.mic_level * 10.f,
+                           ImVec2(-1, 4), "");
+        ImGui::SliderFloat("Mic Gate", &vcfg.mic_gate, 0.f, 0.2f, "%.3f");
+        save_settings |= ImGui::IsItemDeactivatedAfterEdit();
+        ImGui::SliderFloat("Volume", &vcfg.volume, 0.f, 3.f, "%.2f");
+        save_settings |= ImGui::IsItemDeactivatedAfterEdit();
+        save_settings |= ImGui::Checkbox("Positional Audio", &vcfg.positional);
+        ImGui::SliderFloat("Min Distance (m)", &vcfg.min_distance_m, 0.5f, 20.f, "%.1f");
+        save_settings |= ImGui::IsItemDeactivatedAfterEdit();
+        ImGui::SliderFloat("Max Distance (m)", &vcfg.max_distance_m, 5.f, 200.f, "%.1f");
+        save_settings |= ImGui::IsItemDeactivatedAfterEdit();
+        ImGui::SliderFloat("Falloff Aggression", &vcfg.falloff, 0.25f, 4.f, "%.2f",
+                           ImGuiSliderFlags_Logarithmic);
+        save_settings |= ImGui::IsItemDeactivatedAfterEdit();
+        ImGui::Text("%s | %d talking | tx %u rx %u", voice.message, voice.talking_peers,
+                    voice.frames_sent, voice.frames_received);
+
+        // per-user receive volumes for everyone else on the server
+        char user_names[16][32];
+        int user_count = mumble_native_get_user_list(user_names, 16);
+        if (user_count > 0) {
+          ImGui::Separator();
+          ImGui::TextUnformatted("User Volumes");
+          for (int i = 0; i < user_count; i++) {
+            float vol = mumble_voice_get_user_volume(user_names[i]);
+            if (ImGui::SliderFloat(user_names[i], &vol, 0.f, 2.f, "%.2f")) {
+              mumble_voice_set_user_volume(user_names[i], vol);
+            }
+            save_settings |= ImGui::IsItemDeactivatedAfterEdit();
+          }
+        }
+
+        if (save_settings) {
+          mumble_config_save();
+        }
+        ImGui::TreePop();
+      }
+
+      ImGui::Separator();
+      MumbleLinkPeer peers[kMaxMumblePeers];
+      int peer_count = mumble_link_get_peers(peers);
+      ImGui::Text("Voice peers: %d", peer_count);
+      for (int i = 0; i < peer_count; i++) {
+        // positions are raw game units; show meters for readability
+        ImGui::Text("  %s: %.1f %.1f %.1f m", peers[i].name, peers[i].pos[0] / 4096.f,
+                    peers[i].pos[1] / 4096.f, peers[i].pos[2] / 4096.f);
+      }
       ImGui::EndMenu();
     }
 
