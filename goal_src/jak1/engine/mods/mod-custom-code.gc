@@ -29,7 +29,10 @@
 (defun update-mumble-link ()
   "Send the player's position and the camera transform to Mumble for proximity voice chat."
   (when (and *target* *math-camera*)
-    (pc-mumble-link-update (the-as uint (target-pos 0))
+    ;; joint 5 (chest) instead of control trans: bone positions keep updating
+    ;; during cutscenes when the target's trans doesn't. Same joint the engine
+    ;; uses for aim-at-Jak logic (sharkey, pelican, robotboss).
+    (pc-mumble-link-update (the-as uint (target-pos 5))
                            (the-as uint (camera-pos))
                            (the-as uint (-> *math-camera* inv-camera-rot))
                            *mumble-world-scale*))

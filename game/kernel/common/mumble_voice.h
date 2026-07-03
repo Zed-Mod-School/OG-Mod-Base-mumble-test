@@ -25,11 +25,11 @@ struct MumbleVoiceConfig {
   float volume = 1.0f;         // master receive volume
   bool positional = true;      // attenuate/pan by in-game distance
   float min_distance_m = 3.f;  // full volume within this (Mumble meters)
-  float max_distance_m = 20.f; // silent beyond this
+  float max_distance_m = 22.f; // silent beyond this
   // falloff curve aggression: gain = (1 - t)^falloff where t is the
   // normalized distance between min and max. 1 = linear; higher values make
   // voices drop off faster as players walk away.
-  float falloff = 1.0f;
+  float falloff = 4.0f;
   // cubeb device_id strings; empty = system default. Changing these while
   // voice is running restarts the streams on the new devices.
   char input_device_id[256] = "";
