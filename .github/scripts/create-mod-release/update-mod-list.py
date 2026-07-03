@@ -2,12 +2,17 @@ import json
 import os
 from datetime import datetime, timezone
 
-MOD_ID = os.environ.get("MOD_ID", "mumble-proximity-chat")
+MOD_ID = os.environ.get("MOD_ID", "mumble-proximity-chat-beta")
+DISPLAY_NAME = "Mumble Proximity Chat - BETA"
+# ids of this mod from before the BETA rename - migrated automatically below
+LEGACY_MOD_IDS = ["mumble-proximity-chat"]
 
 version = os.environ["VERSION"]
 supported_games = [g.strip() for g in os.environ.get("SUPPORTED_GAMES", "jak1").split(",") if g.strip()]
 repo = os.environ.get("GITHUB_REPOSITORY", "Zed-Mod-School/OG-Mod-Base-mumble-test")
 repo_url = f"https://github.com/{repo}"
+# cover/thumbnail art, always kept in sync by this script
+ART_URL = f"https://raw.githubusercontent.com/{repo}/main/.github/assets/mod-cover.png"
 
 mod_list_path = os.path.join(os.environ.get("GITHUB_WORKSPACE", "."), "mod_list.json")
 
@@ -27,9 +32,16 @@ mod_list.setdefault("sourceName", repo.split("/")[-1])
 mod_list.setdefault("mods", {})
 mod_list.setdefault("texturePacks", {})
 
-# Create the mod entry if missing; never clobber fields someone edited by hand
+# migrate entries from before the BETA rename (keeps their version history)
+for legacy_id in LEGACY_MOD_IDS:
+    if legacy_id in mod_list["mods"] and MOD_ID not in mod_list["mods"]:
+        mod_list["mods"][MOD_ID] = mod_list["mods"].pop(legacy_id)
+        print(f"Migrated mod entry {legacy_id} -> {MOD_ID}")
+
+# Create the mod entry if missing; setdefault fields can be hand-edited,
+# assigned fields are owned by this script and always overwritten
 mod = mod_list["mods"].setdefault(MOD_ID, {})
-mod.setdefault("displayName", "Mumble Proximity Chat")
+mod["displayName"] = DISPLAY_NAME
 mod.setdefault(
     "description",
     "Proximity voice chat for Jak 1 via the Mumble Link plugin. Voice volume "
@@ -40,8 +52,8 @@ mod.setdefault("tags", ["multiplayer", "voice-chat"])
 mod.setdefault("websiteUrl", repo_url)
 mod.setdefault("supportedGames", supported_games)
 mod.setdefault("versions", [])
-mod.setdefault("coverArtUrl", None)
-mod.setdefault("thumbnailArtUrl", None)
+mod["coverArtUrl"] = ART_URL
+mod["thumbnailArtUrl"] = ART_URL
 mod.setdefault("perGameConfig", None)
 mod.setdefault("externalLink", None)
 
